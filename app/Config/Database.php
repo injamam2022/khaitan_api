@@ -195,16 +195,22 @@ class Database extends Config
     {
         parent::__construct();
 
-        // Ensure environment variables are loaded from .env file
-        // CodeIgniter's parent constructor should handle this, but we ensure it here
-        $this->default['hostname'] = env('database.default.hostname', $this->default['hostname'] ?? 'localhost');
-        $this->default['database'] = env('database.default.database', $this->default['database'] ?? '');
-        $this->default['username'] = env('database.default.username', $this->default['username'] ?? '');
-        $this->default['password'] = env('database.default.password', $this->default['password'] ?? '');
-        $this->default['DBDriver'] = env('database.default.DBDriver', $this->default['DBDriver'] ?? 'MySQLi');
-        $this->default['port'] = (int)env('database.default.port', $this->default['port'] ?? 3306);
-        $this->default['charset'] = env('database.default.charset', $this->default['charset'] ?? 'utf8mb4');
-        $this->default['DBCollat'] = env('database.default.DBCollat', $this->default['DBCollat'] ?? 'utf8mb4_general_ci');
+        // Support dedicated local/prod DB keys with backward compatibility for database.default.*
+        $environment = env('CI_ENVIRONMENT', ENVIRONMENT);
+        $dbEnvPrefix = $environment === 'production' ? 'database.production' : 'database.local';
+
+        $getDbEnvValue = static function (string $key, mixed $default) use ($dbEnvPrefix) {
+            return env($dbEnvPrefix . '.' . $key, env('database.default.' . $key, $default));
+        };
+
+        $this->default['hostname'] = $getDbEnvValue('hostname', $this->default['hostname'] ?? 'localhost');
+        $this->default['database'] = $getDbEnvValue('database', $this->default['database'] ?? '');
+        $this->default['username'] = $getDbEnvValue('username', $this->default['username'] ?? '');
+        $this->default['password'] = $getDbEnvValue('password', $this->default['password'] ?? '');
+        $this->default['DBDriver'] = $getDbEnvValue('DBDriver', $this->default['DBDriver'] ?? 'MySQLi');
+        $this->default['port'] = (int) $getDbEnvValue('port', $this->default['port'] ?? 3306);
+        $this->default['charset'] = $getDbEnvValue('charset', $this->default['charset'] ?? 'utf8mb4');
+        $this->default['DBCollat'] = $getDbEnvValue('DBCollat', $this->default['DBCollat'] ?? 'utf8mb4_general_ci');
 
         // CRITICAL: Disable database debug in production to prevent SQL query exposure
         // DBDebug should only be enabled in development/testing environments

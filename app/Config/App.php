@@ -202,16 +202,21 @@ class App extends BaseConfig
     public function __construct()
     {
         parent::__construct();
-        if (defined('ENVIRONMENT') && ENVIRONMENT === 'production') {
-            $url = env('app.baseURL');
-            if (is_string($url) && $url !== '') {
-                $this->baseURL = rtrim($url, '/') . '/';
-            } else {
-                // Use centralized domain configuration
-                $domains = config('Domains');
-                $this->baseURL = $domains->getBackendBaseUrl();
-            }
-            $this->forceGlobalSecureRequests = true;
+
+        $environment = env('CI_ENVIRONMENT', defined('ENVIRONMENT') ? ENVIRONMENT : 'production');
+        $isProduction = $environment === 'production';
+
+        $preferredBaseUrlKey = $isProduction ? 'app.production.baseURL' : 'app.local.baseURL';
+        $url = env($preferredBaseUrlKey, env('app.baseURL'));
+
+        if (is_string($url) && $url !== '') {
+            $this->baseURL = rtrim($url, '/') . '/';
+        } elseif ($isProduction) {
+            // Keep existing centralized production fallback.
+            $domains = config('Domains');
+            $this->baseURL = $domains->getBackendBaseUrl();
         }
+
+        $this->forceGlobalSecureRequests = $isProduction;
     }
 }
