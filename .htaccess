@@ -1,0 +1,24 @@
+# Redirect all requests to public directory
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # If request is not for public directory, redirect to it
+    RewriteCond %{REQUEST_URI} !^/backend/public/
+    RewriteRule ^(.*)$ /backend/public/$1 [L]
+</IfModule>
+
+# Disable directory browsing
+Options -Indexes
+
+# Set directory index (fallback if rewrite fails)
+DirectoryIndex index.php index.html
+
+# Protect sensitive files like .env and composer
+<FilesMatch "^\.env|composer\.(json|lock)$">
+    Require all denied
+</FilesMatch>
+
+# Block direct access to application source directories
+<IfModule mod_rewrite.c>
+    RewriteRule ^(app|writable|tests|builds|vendor|scripts)/(.*)$ - [F,L]
+</IfModule>

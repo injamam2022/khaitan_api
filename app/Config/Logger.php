@@ -1,0 +1,192 @@
+<?php
+
+namespace Config;
+
+use CodeIgniter\Config\BaseConfig;
+use CodeIgniter\Log\Handlers\ErrorlogHandler;
+use CodeIgniter\Log\Handlers\FileHandler;
+use CodeIgniter\Log\Handlers\HandlerInterface;
+
+class Logger extends BaseConfig
+{
+    /**
+     * --------------------------------------------------------------------------
+     * Error Logging Threshold
+     * --------------------------------------------------------------------------
+     *
+     * You can enable error logging by setting a threshold over zero. The
+     * threshold determines what gets logged. Any values below or equal to the
+     * threshold will be logged.
+     *
+     * Threshold options are:
+     *
+     * - 0 = Disables logging, Error logging TURNED OFF
+     * - 1 = Emergency Messages - System is unusable
+     * - 2 = Alert Messages - Action Must Be Taken Immediately
+     * - 3 = Critical Messages - Application component unavailable, unexpected exception.
+     * - 4 = Runtime Errors - Don't need immediate action, but should be monitored.
+     * - 5 = Warnings - Exceptional occurrences that are not errors.
+     * - 6 = Notices - Normal but significant events.
+     * - 7 = Info - Interesting events, like user logging in, etc.
+     * - 8 = Debug - Detailed debug information.
+     * - 9 = All Messages
+     *
+     * You can also pass an array with threshold levels to show individual error types
+     *
+     *     array(1, 2, 3, 8) = Emergency, Alert, Critical, and Debug messages
+     *
+     * For a live site you'll usually enable Critical or higher (3) to be logged otherwise
+     * your log files will fill up very fast.
+     *
+     * To see EasyEcom webhook and API logs (info + error), use threshold 7 or 9.
+     * Default 7 = log emergency, alert, critical, error, warning, notice, info.
+     *
+     * @var int|list<int>
+     */
+    public $threshold = 7;
+
+    public function __construct()
+    {
+        parent::__construct();
+        try {
+            $envThreshold = env('LOG_THRESHOLD');
+            if ($envThreshold !== null && $envThreshold !== '' && is_numeric($envThreshold)) {
+                $this->threshold = max(1, (int) $envThreshold);
+            } elseif (defined('ENVIRONMENT') && ENVIRONMENT === 'production') {
+                $this->threshold = 4;
+            }
+            // When EasyEcom sync is enabled, ensure INFO (7) is logged so step-by-step EasyEcom logs appear in writable/logs/
+            $easyecomEnabled = filter_var(env('EASYECOM_SYNC_ENABLED', false), FILTER_VALIDATE_BOOLEAN);
+            if ($easyecomEnabled && $this->threshold < 7) {
+                $this->threshold = 7;
+            }
+            // Ensure log directory exists (server may not have writable/logs created)
+            if (defined('WRITEPATH')) {
+                $logDir = rtrim(WRITEPATH, '/\\') . DIRECTORY_SEPARATOR . 'logs';
+                if (! is_dir($logDir)) {
+                    @mkdir($logDir, 0755, true);
+                }
+            }
+        } catch (\Throwable $e) {
+            // Never let Logger config break the app (e.g. login); leave threshold as set above
+        }
+    }
+
+    /**
+     * --------------------------------------------------------------------------
+     * Date Format for Logs
+     * --------------------------------------------------------------------------
+     *
+     * Each item that is logged has an associated date. You can use PHP date
+     * codes to set your own date formatting
+     */
+    public string $dateFormat = 'Y-m-d H:i:s';
+
+    /**
+     * --------------------------------------------------------------------------
+     * Log Handlers
+     * --------------------------------------------------------------------------
+     *
+     * The logging system supports multiple actions to be taken when something
+     * is logged. This is done by allowing for multiple Handlers, special classes
+     * designed to write the log to their chosen destinations, whether that is
+     * a file on the getServer, a cloud-based service, or even taking actions such
+     * as emailing the dev team.
+     *
+     * Each handler is defined by the class name used for that handler, and it
+     * MUST implement the `CodeIgniter\Log\Handlers\HandlerInterface` interface.
+     *
+     * The value of each key is an array of configuration items that are sent
+     * to the constructor of each handler. The only required configuration item
+     * is the 'handles' element, which must be an array of integer log levels.
+     * This is most easily handled by using the constants defined in the
+     * `Psr\Log\LogLevel` class.
+     *
+     * Handlers are executed in the order defined in this array, starting with
+     * the handler on top and continuing down.
+     *
+     * @var array<class-string<HandlerInterface>, array<string, int|list<string>|string>>
+     */
+    public array $handlers = [
+        /*
+         * --------------------------------------------------------------------
+         * File Handler
+         * --------------------------------------------------------------------
+         */
+        FileHandler::class => [
+            // The log levels that this handler will handle.
+            'handles' => [
+                'critical',
+                'alert',
+                'emergency',
+                'debug',
+                'error',
+                'info',
+                'notice',
+                'warning',
+            ],
+
+            /*
+             * The default filename extension for log files.
+             * An extension of 'php' allows for protecting the log files via basic
+             * scripting, when they are to be stored under a publicly accessible directory.
+             *
+             * NOTE: Leaving it blank will default to 'log'.
+             */
+            'fileExtension' => '',
+
+            /*
+             * The file system permissions to be applied on newly created log files.
+             *
+             * IMPORTANT: This MUST be an integer (no quotes) and you MUST use octal
+             * integer notation (i.e. 0700, 0644, etc.)
+             */
+            'filePermissions' => 0644,
+
+            /*
+             * Logging Directory Path
+             *
+             * Empty = use framework default (WRITEPATH . 'logs/'). Log files: writable/logs/log-YYYY-MM-DD.log
+             * Set LOG_THRESHOLD=7 in .env (or EASYECOM_SYNC_ENABLED=true) to see EasyEcom step logs.
+             */
+            'path' => '',
+        ],
+
+        /*
+         * Also send logs to PHP error_log() so they appear in Apache/Nginx/PHP-FPM error log
+         * when writable/logs is missing or not writable. On server: tail -f /var/log/apache2/error.log
+         * or tail -f /var/log/nginx/error.log (or php-fpm log).
+         */
+        ErrorlogHandler::class => [
+            'handles' => ['critical', 'alert', 'emergency', 'debug', 'error', 'info', 'notice', 'warning'],
+            'messageType' => 0,
+        ],
+
+        /*
+         * The ChromeLoggerHandler requires the use of the Chrome web browser
+         * and the ChromeLogger extension. Uncomment this block to use it.
+         */
+        // 'CodeIgniter\Log\Handlers\ChromeLoggerHandler' => [
+        //     /*
+        //      * The log levels that this handler will handle.
+        //      */
+        //     'handles' => ['critical', 'alert', 'emergency', 'debug',
+        //                   'error', 'info', 'notice', 'warning'],
+        // ],
+
+        /*
+         * The ErrorlogHandler writes the logs to PHP's native `error_log()` function.
+         * Uncomment this block to use it.
+         */
+        // 'CodeIgniter\Log\Handlers\ErrorlogHandler' => [
+        //     /* The log levels this handler can handle. */
+        //     'handles' => ['critical', 'alert', 'emergency', 'debug', 'error', 'info', 'notice', 'warning'],
+        //
+        //     /*
+        //     * The message type where the error should go. Can be 0 or 4, or use the
+        //     * class constants: `ErrorlogHandler::TYPE_OS` (0) or `ErrorlogHandler::TYPE_SAPI` (4)
+        //     */
+        //     'messageType' => 0,
+        // ],
+    ];
+}

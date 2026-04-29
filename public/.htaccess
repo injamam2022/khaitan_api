@@ -1,0 +1,62 @@
+# Disable directory browsing
+Options -Indexes
+
+# ----------------------------------------------------------------------
+# CORS Headers - Simple & Bulletproof (Works in all Apache versions)
+# ----------------------------------------------------------------------
+<IfModule mod_headers.c>
+	# Set CORS headers for ALL requests
+	# This works with Apache 2.2+ (no <If> conditions needed)
+	
+	# Allow localhost and 127.0.0.1 origins (development)
+	SetEnvIf Origin "http(s)?://(localhost|127\.0\.0\.1)(:[0-9]+)?$" AccessControlAllowOrigin=$0
+	# Allow dashboard origin (main site - login from khaitanadmin.com)
+	SetEnvIf Origin "https://(www\.)?khaitanadmin\.com$" AccessControlAllowOrigin=$0
+	# Allow admin subdomain origin
+	SetEnvIf Origin "https://(www\.)?admin\.khaitan\.com$" AccessControlAllowOrigin=$0
+	
+	# Set CORS headers when origin matches
+	Header always set Access-Control-Allow-Origin "%{AccessControlAllowOrigin}e" env=AccessControlAllowOrigin
+	Header always set Access-Control-Allow-Credentials "true" env=AccessControlAllowOrigin
+	Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS" env=AccessControlAllowOrigin
+	Header always set Access-Control-Allow-Headers "Content-Type, Authorization, Access-Token, X-Requested-With, Accept, Origin" env=AccessControlAllowOrigin
+	Header always set Access-Control-Max-Age "86400" env=AccessControlAllowOrigin
+</IfModule>
+
+# ----------------------------------------------------------------------
+# Rewrite engine
+# ----------------------------------------------------------------------
+<IfModule mod_rewrite.c>
+	Options +FollowSymlinks
+	RewriteEngine On
+
+	# Base path
+	RewriteBase /backend/public/
+
+	# Handle OPTIONS preflight - return 200 immediately
+	RewriteCond %{REQUEST_METHOD} OPTIONS
+	RewriteRule ^(.*)$ $1 [R=200,L]
+
+	# Redirect Trailing Slashes
+	RewriteCond %{REQUEST_FILENAME} !-d
+	RewriteCond %{REQUEST_URI} (.+)/$
+	RewriteRule ^ %1 [L,R=301]
+
+	# Route all requests to index.php
+	RewriteCond %{REQUEST_FILENAME} !-f
+	RewriteCond %{REQUEST_FILENAME} !-d
+	RewriteRule ^([\s\S]*)$ index.php/$1 [L,NC,QSA]
+
+	# Pass Authorization and Access-Token headers (for webhooks)
+	RewriteCond %{HTTP:Authorization} .
+	RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+	RewriteCond %{HTTP:Access-Token} .
+	RewriteRule .* - [E=HTTP_ACCESS_TOKEN:%{HTTP:Access-Token}]
+</IfModule>
+
+<IfModule !mod_rewrite.c>
+	ErrorDocument 404 index.php
+</IfModule>
+
+# Disable server signature
+ServerSignature Off
