@@ -342,6 +342,86 @@ class Products extends BaseController
     }
 
     /**
+     * Storefront product detail by slug.
+     * Compatible with UI call: GET /api/products/slug/{slug}
+     */
+    public function slug(string $slug = '')
+    {
+        try {
+            $slug = strtolower(trim($slug));
+            if ($slug === '') {
+                return json_error('Product slug is required', 400);
+            }
+
+            $row = $this->productModel->db->table('products')
+                ->select('id')
+                ->where('slug', $slug)
+                ->where('status <>', 'DELETED')
+                ->get()
+                ->getRowArray();
+
+            if (empty($row['id'])) {
+                return json_error('Product not found', 404);
+            }
+
+            $productId = (int)$row['id'];
+            $productDetails = $this->productModel->getProductDetails($productId);
+            if (empty($productDetails)) {
+                return json_error('Product not found', 404);
+            }
+
+            $images = $this->productModel->getProductImageDetails($productId);
+            $descriptions = $this->productModel->getAllProductDescriptions($productId);
+            $descriptionImages = $this->productModel->getAllDescriptionImages($productId);
+            $specifications = $this->productModel->getProductSpecifications($productId);
+            $specificationImages = $this->productModel->getProductSpecificationImages($productId);
+            $productInfo = $this->productModel->getProductInformation($productId);
+            $whyChoose = $this->productModel->getProductWhyChoose($productId);
+            $disclaimers = $this->productModel->getProductDisclaimers($productId);
+            $brochures = $this->productModel->getProductBrochures($productId);
+
+            $gstRate = isset($productDetails['gst_rate']) ? (float)$productDetails['gst_rate'] : 0.0;
+            $variations = $this->productModel->getProductVariationsStructured($productId, $gstRate);
+
+            $selectedVariation = null;
+            if (is_array($variations) && !empty($variations[0]['options']) && is_array($variations[0]['options'])) {
+                foreach ($variations[0]['options'] as $option) {
+                    if (!is_array($option)) {
+                        continue;
+                    }
+                    if (($option['stock']['available'] ?? false) === true) {
+                        $selectedVariation = $option;
+                        break;
+                    }
+                }
+                if ($selectedVariation === null) {
+                    $selectedVariation = $variations[0]['options'][0] ?? null;
+                }
+            }
+
+            return json_success([
+                'product' => $productDetails,
+                'images' => $images,
+                'descriptions' => $descriptions,
+                'description_images' => $descriptionImages,
+                'specifications' => $specifications,
+                'specification_images' => $specificationImages,
+                'product_info' => $productInfo,
+                'productInfo' => $productInfo,
+                'why_choose' => $whyChoose,
+                'disclaimers' => $disclaimers,
+                'brochure' => $brochures,
+                'variations' => $variations,
+                'selected_variation' => $selectedVariation,
+            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'Products::slug error: ' . $e->getMessage());
+            log_message('error', 'Products::slug trace: ' . $e->getTraceAsString());
+            return json_error('Failed to fetch product details', 500);
+        }
+    }
+
+    /**
      * Storefront products filter endpoint.
      * Compatible with UI call: POST /api/products/filter/v2
      */
