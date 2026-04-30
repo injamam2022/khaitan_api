@@ -83,7 +83,7 @@ class Filters extends BaseFilters
             // CORS via PHP ensures headers when OPTIONS preflight reaches CI (Apache may omit them on shared hosting)
             'cors',
             'sessioncookie', // Must run for ALL routes (including login) for cross-domain cookie support
-            'sessionauth' => ['except' => ['login', 'logout', 'health', 'test', 'webhooks/easyecom', 'webhooks/easyecom/*', 'orders/push-easyecom', 'orders/cancel-easyecom', 'cron/*', 'api/products/filter/v2', 'api/products/lists/v2', 'api/home/banners/v2']], // Skip for public, webhook, and internal push
+            'sessionauth' => ['except' => ['login', 'logout', 'health', 'test', 'webhooks/easyecom', 'webhooks/easyecom/*', 'orders/push-easyecom', 'orders/cancel-easyecom', 'cron/*', 'api/products/filter/v2', 'api/products/lists/v2', 'api/products/slug/*', 'api/home/banners/v2']], // Skip for public, webhook, and internal push
             // 'honeypot',
             // 'csrf',
             // 'invalidchars',
