@@ -30,23 +30,14 @@ class Cors extends BaseConfig
      */
     private function getAllowedOrigins(): array
     {
-        $envOrigins = env('CORS_ALLOWED_ORIGINS', '');
-        
-        // If .env has CORS origins, use them
-        if ($envOrigins) {
-            return array_map('trim', explode(',', $envOrigins));
-        }
-        
-        // Otherwise, use centralized domain configuration
-        $domains = config('Domains');
-        return $domains->getAllowedOrigins();
+        return config(\Config\Domains::class)->getAllowedOrigins();
     }
 
     public array $default = [
         'allowedOrigins' => [], // Will be set dynamically in constructor
         'allowedOriginsPatterns' => [],
         'supportsCredentials' => true, // REQUIRED for session cookies
-        'allowedHeaders' => ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+        'allowedHeaders' => ['Content-Type', 'Authorization', 'Access-Token', 'X-Requested-With', 'Accept', 'Origin'],
         'exposedHeaders' => ['Content-Length', 'Content-Type'],
         'allowedMethods' => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
         'maxAge' => 86400, // 24 hours

@@ -85,15 +85,20 @@ class Domains extends BaseConfig
      * Get all allowed CORS origins
      * Returns array of full URLs with protocol
      */
+    /**
+     * CORS origins. In production, `CORS_ALLOWED_ORIGINS` is merged with canonical
+     * storefront/admin/dashboard URLs so a dev-only `.env` value cannot block khaitan.com.
+     */
     public function getAllowedOrigins(): array
     {
-        $envOrigins = env('CORS_ALLOWED_ORIGINS', '');
-        if ($envOrigins) {
-            return array_map('trim', explode(',', $envOrigins));
+        $fromEnv = [];
+        $raw = env('CORS_ALLOWED_ORIGINS', '');
+        if ($raw !== '') {
+            $fromEnv = array_map('trim', array_filter(explode(',', $raw)));
         }
-        
+
         if (ENVIRONMENT === 'production') {
-            return [
+            $canonical = [
                 'https://' . $this->mainDomain,
                 'https://www.' . $this->mainDomain,
                 'https://' . $this->adminSubdomain,
@@ -101,12 +106,18 @@ class Domains extends BaseConfig
                 'https://' . $this->dashboardDomain,
                 'https://www.' . $this->dashboardDomain,
             ];
+            return array_values(array_unique(array_merge($canonical, $fromEnv)));
         }
-        
-        // Development origins
+
+        if ($fromEnv !== []) {
+            return $fromEnv;
+        }
+
         return [
             'http://localhost:3000',
             'http://127.0.0.1:3000',
+            'http://localhost:3001',
+            'http://127.0.0.1:3001',
             'http://localhost:5173',
             'http://127.0.0.1:5173',
         ];
