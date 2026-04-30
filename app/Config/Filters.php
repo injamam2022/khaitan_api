@@ -82,7 +82,7 @@ class Filters extends BaseFilters
         'before' => [
             // CORS is now handled by Apache (.htaccess) - no need for PHP filter
             'sessioncookie', // Must run for ALL routes (including login) for cross-domain cookie support
-            'sessionauth' => ['except' => ['login', 'logout', 'health', 'test', 'webhooks/easyecom', 'webhooks/easyecom/*', 'orders/push-easyecom', 'orders/cancel-easyecom', 'cron/*']], // Skip for public, webhook, and internal push
+            'sessionauth' => ['except' => ['login', 'logout', 'health', 'test', 'webhooks/easyecom', 'webhooks/easyecom/*', 'orders/push-easyecom', 'orders/cancel-easyecom', 'cron/*', 'api/products/filter/v2', 'api/products/lists/v2', 'api/home/banners/v2']], // Skip for public, webhook, and internal push
             // 'honeypot',
             // 'csrf',
             // 'invalidchars',
@@ -128,7 +128,9 @@ class Filters extends BaseFilters
                 'easyecom',
                 'easyecom/*',
                 'webhooks',
-                'webhooks/*'
+                'webhooks/*',
+                'api',
+                'api/*'
             ]], // Debug Toolbar - exclude all API/JSON routes to prevent HTML injection
             // 'honeypot',
             // 'secureheaders',

@@ -15,6 +15,10 @@ $routes->match(['POST', 'OPTIONS'], 'logout', 'Login::Logout');
 $routes->group('api', ['namespace' => 'App\Controllers'], function($routes) {
     $routes->GET('me', 'Login::index');
     $routes->match(['POST', 'OPTIONS'], 'logout', 'Login::Logout');
+    // Storefront compatibility endpoints (v2)
+    $routes->match(['GET', 'OPTIONS'], 'home/banners/v2', 'Banners::bannersV2');
+    $routes->match(['POST', 'OPTIONS'], 'products/lists/v2', 'Products::listsV2');
+    $routes->match(['POST', 'OPTIONS'], 'products/filter/v2', 'Products::filterV2');
 });
 
 // Dashboard Routes

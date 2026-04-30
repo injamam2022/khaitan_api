@@ -36,6 +36,25 @@ class Banners extends BaseController
     }
 
     /**
+     * Public storefront endpoint.
+     * Compatible with UI call: GET /api/home/banners/v2
+     */
+    public function bannersV2()
+    {
+        try {
+            $banner_list = $this->bannerModel->getBannerList();
+            $active = array_values(array_filter($banner_list, static function (array $row): bool {
+                return (int)($row['is_active'] ?? 1) === 1;
+            }));
+
+            return json_success($active);
+        } catch (\Throwable $e) {
+            log_message('error', 'Banners::bannersV2 error: ' . $e->getMessage());
+            return json_error('Failed to fetch banners', 500);
+        }
+    }
+
+    /**
      * Add a new banner
      */
     public function add()

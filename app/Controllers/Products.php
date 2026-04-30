@@ -131,6 +131,273 @@ class Products extends BaseController
         }
     }
 
+    /**
+     * Storefront products listing endpoint.
+     * Compatible with UI call: POST /api/products/lists/v2
+     */
+    public function listsV2()
+    {
+        try {
+            $payload = $this->request->getJSON(true);
+            if (!is_array($payload)) {
+                $payload = [];
+            }
+
+            $page = max(1, (int)($payload['page'] ?? 1));
+            $limitRaw = (int)($payload['limit'] ?? 20);
+            $limit = $limitRaw > 0 ? min($limitRaw, 100000) : 20;
+            $offset = ($page - 1) * $limit;
+
+            $sort = strtolower(trim((string)($payload['sort'] ?? '')));
+            $searchTerms = trim((string)($payload['searchTerms'] ?? ''));
+
+            $priceExpr = "COALESCE(NULLIF(P.final_price, 0), NULLIF(P.sale_price, 0), NULLIF(P.product_price, 0), NULLIF(P.mrp, 0), 0)";
+
+            $builder = $this->productModel->db->table('products AS P');
+            $builder->select("
+                P.id,
+                P.product_name,
+                P.slug,
+                P.short_description,
+                {$priceExpr} AS min_price,
+                (SELECT PI.image
+                 FROM product_image AS PI
+                 WHERE PI.product_id = CAST(P.id AS UNSIGNED)
+                   AND PI.status <> 'DELETED'
+                 ORDER BY PI.display_order ASC, PI.id ASC
+                 LIMIT 1) AS primary_image,
+                C.id AS category_id,
+                C.category AS category_name,
+                C.categorykey AS category_slug,
+                SC.id AS subcategory_id,
+                SC.category AS subcategory_name,
+                SC.categorykey AS subcategory_slug,
+                SC.home_static_image AS subcategory_banner_image
+            ");
+            $builder->join('product_category AS SC', 'SC.id = P.category_id AND SC.status <> \'DELETED\'', 'left');
+            $builder->join(
+                'product_category AS C',
+                'C.id = (CASE WHEN SC.parent_id IS NULL OR SC.parent_id = 0 THEN SC.id ELSE SC.parent_id END) AND C.status <> \'DELETED\'',
+                'left'
+            );
+            $builder->where('P.status <>', 'DELETED');
+
+            if ($searchTerms !== '') {
+                $builder->groupStart()
+                    ->like('P.product_name', $searchTerms)
+                    ->orLike('P.slug', $searchTerms)
+                    ->orLike('P.short_description', $searchTerms)
+                    ->groupEnd();
+            }
+
+            if ($sort === 'price_desc') {
+                $builder->orderBy("{$priceExpr}", 'DESC', false);
+            } elseif ($sort === 'price_asc') {
+                $builder->orderBy("{$priceExpr}", 'ASC', false);
+            } else {
+                $builder->orderBy('P.home_display_order', 'ASC');
+                $builder->orderBy('P.id', 'ASC');
+            }
+
+            $total = (int)$builder->countAllResults(false);
+            $rows = $builder->limit($limit, $offset)->get()->getResultArray();
+
+            $products = array_map(static function (array $row): array {
+                return [
+                    'id' => (int)($row['id'] ?? 0),
+                    'product_name' => (string)($row['product_name'] ?? ''),
+                    'slug' => (string)($row['slug'] ?? ''),
+                    'short_description' => (string)($row['short_description'] ?? ''),
+                    'min_price' => (float)($row['min_price'] ?? 0),
+                    'primary_image' => $row['primary_image'] ?? null,
+                    'category' => [
+                        'id' => isset($row['category_id']) ? (int)$row['category_id'] : null,
+                        'name' => $row['category_name'] ?? null,
+                        'slug' => $row['category_slug'] ?? null,
+                    ],
+                    'subcategory' => [
+                        'id' => isset($row['subcategory_id']) ? (int)$row['subcategory_id'] : null,
+                        'name' => $row['subcategory_name'] ?? null,
+                        'slug' => $row['subcategory_slug'] ?? null,
+                        'banner_image' => $row['subcategory_banner_image'] ?? null,
+                    ],
+                ];
+            }, $rows);
+
+            return json_success([
+                'products' => $products,
+                'pagination' => [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total' => $total,
+                    'total_pages' => (int)ceil($total / max(1, $limit)),
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'Products::listsV2 error: ' . $e->getMessage());
+            log_message('error', 'Products::listsV2 trace: ' . $e->getTraceAsString());
+            return json_error('Failed to fetch products', 500);
+        }
+    }
+
+    /**
+     * Storefront products filter endpoint.
+     * Compatible with UI call: POST /api/products/filter/v2
+     */
+    public function filterV2()
+    {
+        try {
+            $payload = $this->request->getJSON(true);
+            if (!is_array($payload)) {
+                $payload = [];
+            }
+
+            $filters = isset($payload['filters']) && is_array($payload['filters']) ? $payload['filters'] : [];
+
+            $searchTerms = trim((string)($payload['searchTerms'] ?? $filters['searchTerms'] ?? ''));
+            $categoryKey = strtolower(trim((string)($filters['categorykey'] ?? '')));
+            $subcategoryKey = strtolower(trim((string)($filters['subcategorykey'] ?? '')));
+
+            $page = max(1, (int)($payload['page'] ?? 1));
+            $limit = max(1, min(200, (int)($payload['limit'] ?? 9)));
+            $offset = ($page - 1) * $limit;
+
+            $sort = strtolower(trim((string)($payload['sort'] ?? '')));
+
+            $priceRange = isset($filters['price_range']) && is_array($filters['price_range']) ? $filters['price_range'] : [];
+            $minPrice = isset($priceRange['min']) && $priceRange['min'] !== '' ? (float)$priceRange['min'] : null;
+            $maxPrice = isset($priceRange['max']) && $priceRange['max'] !== '' ? (float)$priceRange['max'] : null;
+
+            $priceExpr = "COALESCE(NULLIF(P.final_price, 0), NULLIF(P.sale_price, 0), NULLIF(P.product_price, 0), NULLIF(P.mrp, 0), 0)";
+
+            $builder = $this->productModel->db->table('products AS P');
+            $builder->select("
+                P.id,
+                P.product_name,
+                P.slug,
+                P.short_description,
+                {$priceExpr} AS min_price,
+                (SELECT PI.image
+                 FROM product_image AS PI
+                 WHERE PI.product_id = CAST(P.id AS UNSIGNED)
+                   AND PI.status <> 'DELETED'
+                 ORDER BY PI.display_order ASC, PI.id ASC
+                 LIMIT 1) AS primary_image,
+                C.id AS category_id,
+                C.category AS category_name,
+                C.categorykey AS category_slug,
+                SC.id AS subcategory_id,
+                SC.category AS subcategory_name,
+                SC.categorykey AS subcategory_slug,
+                SC.home_static_image AS subcategory_banner_image
+            ");
+
+            $builder->join('product_category AS SC', 'SC.id = P.category_id AND SC.status <> \'DELETED\'', 'left');
+            $builder->join(
+                'product_category AS C',
+                'C.id = (CASE WHEN SC.parent_id IS NULL OR SC.parent_id = 0 THEN SC.id ELSE SC.parent_id END) AND C.status <> \'DELETED\'',
+                'left'
+            );
+            $builder->where('P.status <>', 'DELETED');
+
+            if ($subcategoryKey !== '') {
+                $escapedSub = $this->productModel->db->escape($subcategoryKey);
+                $normalizedSub = rtrim($subcategoryKey, 's');
+                $escapedSubLike = $this->productModel->db->escapeLikeString($normalizedSub) . '%';
+                $builder->where(
+                    "(LOWER(COALESCE(SC.categorykey, '')) = {$escapedSub}
+                      OR REPLACE(LOWER(COALESCE(SC.category, '')), ' ', '-') = {$escapedSub}
+                      OR EXISTS (
+                          SELECT 1
+                          FROM product_category CH
+                          WHERE CH.parent_id = SC.id
+                            AND CH.status <> 'DELETED'
+                            AND LOWER(COALESCE(CH.categorykey, '')) = {$escapedSub}
+                      )
+                      OR REPLACE(LOWER(COALESCE(SC.category, '')), ' ', '-') LIKE " . $this->productModel->db->escape($escapedSubLike) . " ESCAPE '!')",
+                    null,
+                    false
+                );
+            }
+
+            if ($categoryKey !== '') {
+                $escapedCat = $this->productModel->db->escape($categoryKey);
+                $normalizedCat = rtrim($categoryKey, 's');
+                $escapedCatLike = $this->productModel->db->escapeLikeString($normalizedCat) . '%';
+                $builder->where(
+                    "(LOWER(COALESCE(C.categorykey, '')) = {$escapedCat}
+                      OR REPLACE(LOWER(COALESCE(C.category, '')), ' ', '-') = {$escapedCat}
+                      OR REPLACE(LOWER(COALESCE(C.category, '')), ' ', '-') LIKE " . $this->productModel->db->escape($escapedCatLike) . " ESCAPE '!')",
+                    null,
+                    false
+                );
+            }
+
+            if ($searchTerms !== '') {
+                $builder->groupStart()
+                    ->like('P.product_name', $searchTerms)
+                    ->orLike('P.slug', $searchTerms)
+                    ->orLike('P.short_description', $searchTerms)
+                    ->groupEnd();
+            }
+
+            if ($minPrice !== null) {
+                $builder->where("{$priceExpr} >=", $minPrice, false);
+            }
+            if ($maxPrice !== null) {
+                $builder->where("{$priceExpr} <=", $maxPrice, false);
+            }
+
+            if ($sort === 'price_desc') {
+                $builder->orderBy("{$priceExpr}", 'DESC', false);
+            } elseif ($sort === 'price_asc') {
+                $builder->orderBy("{$priceExpr}", 'ASC', false);
+            } else {
+                $builder->orderBy('P.home_display_order', 'ASC');
+                $builder->orderBy('P.id', 'ASC');
+            }
+
+            $total = (int)$builder->countAllResults(false);
+            $rows = $builder->limit($limit, $offset)->get()->getResultArray();
+
+            $products = array_map(static function (array $row): array {
+                return [
+                    'id' => (int)($row['id'] ?? 0),
+                    'product_name' => (string)($row['product_name'] ?? ''),
+                    'slug' => (string)($row['slug'] ?? ''),
+                    'short_description' => (string)($row['short_description'] ?? ''),
+                    'min_price' => (float)($row['min_price'] ?? 0),
+                    'primary_image' => $row['primary_image'] ?? null,
+                    'category' => [
+                        'id' => isset($row['category_id']) ? (int)$row['category_id'] : null,
+                        'name' => $row['category_name'] ?? null,
+                        'slug' => $row['category_slug'] ?? null,
+                    ],
+                    'subcategory' => [
+                        'id' => isset($row['subcategory_id']) ? (int)$row['subcategory_id'] : null,
+                        'name' => $row['subcategory_name'] ?? null,
+                        'slug' => $row['subcategory_slug'] ?? null,
+                        'banner_image' => $row['subcategory_banner_image'] ?? null,
+                    ],
+                ];
+            }, $rows);
+
+            return json_success([
+                'products' => $products,
+                'pagination' => [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total' => $total,
+                    'total_pages' => (int)ceil($total / $limit),
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'Products::filterV2 error: ' . $e->getMessage());
+            log_message('error', 'Products::filterV2 trace: ' . $e->getTraceAsString());
+            return json_error('Failed to fetch filtered products', 500);
+        }
+    }
+
     public function cat()
     {
         try {
