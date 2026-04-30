@@ -12,6 +12,8 @@ Options -Indexes
 	SetEnvIf Origin "http(s)?://(localhost|127\.0\.0\.1)(:[0-9]+)?$" AccessControlAllowOrigin=$0
 	# Allow dashboard origin (main site - login from khaitanadmin.com)
 	SetEnvIf Origin "https://(www\.)?khaitanadmin\.com$" AccessControlAllowOrigin=$0
+	# Allow main storefront origin
+	SetEnvIf Origin "https://(www\.)?khaitan\.com$" AccessControlAllowOrigin=$0
 	# Allow admin subdomain origin
 	SetEnvIf Origin "https://(www\.)?admin\.khaitan\.com$" AccessControlAllowOrigin=$0
 	
