@@ -31,7 +31,7 @@ Options -Indexes
 	RewriteEngine On
 
 	# Base path
-	RewriteBase /backend/public/
+	RewriteBase /khaitan_dev_new/khaitan_api/public/
 
 	# Handle OPTIONS preflight - return 200 immediately
 	RewriteCond %{REQUEST_METHOD} OPTIONS

@@ -3,8 +3,8 @@
     RewriteEngine On
     
     # If request is not for public directory, redirect to it
-    RewriteCond %{REQUEST_URI} !^/backend/public/
-    RewriteRule ^(.*)$ /backend/public/$1 [L]
+    RewriteCond %{REQUEST_URI} !^/khaitan_dev_new/khaitan_api/public/
+    RewriteRule ^(.*)$ /khaitan_dev_new/khaitan_api/public/$1 [L]
 </IfModule>
 
 # Disable directory browsing
