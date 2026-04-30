@@ -14,6 +14,12 @@ class Products extends BaseController
     use ResponseTrait;
 
     protected $productModel;
+    /**
+     * Cache resolved primary image filenames per product ID.
+     *
+     * @var array<int, string|null>
+     */
+    private array $primaryImageResolutionCache = [];
 
     public function initController(RequestInterface $request, ResponseInterface $response, LoggerInterface $logger)
     {
@@ -91,6 +97,99 @@ class Products extends BaseController
             }
         }
         return $entries;
+    }
+
+    /**
+     * Resolve API primary image to an existing file when DB value is stale.
+     */
+    private function resolvePrimaryImageForResponse(int $productId, ?string $primaryImage): ?string
+    {
+        if ($productId <= 0) {
+            return $primaryImage;
+        }
+
+        if (array_key_exists($productId, $this->primaryImageResolutionCache)) {
+            return $this->primaryImageResolutionCache[$productId];
+        }
+
+        $resolved = $primaryImage;
+        $imagesDir = rtrim(FCPATH, '/\\') . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'productimages' . DIRECTORY_SEPARATOR;
+
+        $candidate = is_string($primaryImage) ? trim($primaryImage) : '';
+        if ($candidate !== '') {
+            // If DB value exists on disk, keep it as-is.
+            if (is_file($imagesDir . $candidate)) {
+                $this->primaryImageResolutionCache[$productId] = $candidate;
+                return $candidate;
+            }
+
+            // Extension fallback (jpg/jpeg/png -> webp and vice versa).
+            $extCandidates = [];
+            if (preg_match('/^(.*)\.(jpg|jpeg|png|webp)$/i', $candidate, $parts) === 1) {
+                $base = $parts[1];
+                $currentExt = strtolower($parts[2]);
+                $alternates = ['webp', 'jpg', 'jpeg', 'png'];
+                foreach ($alternates as $ext) {
+                    if ($ext === $currentExt) {
+                        continue;
+                    }
+                    $extCandidates[] = $base . '.' . $ext;
+                }
+            }
+
+            foreach ($extCandidates as $altName) {
+                if (is_file($imagesDir . $altName)) {
+                    $resolved = $altName;
+                    $this->primaryImageResolutionCache[$productId] = $resolved;
+                    return $resolved;
+                }
+            }
+        }
+
+        // Last resort: pick best existing file for this product ID.
+        $resolved = $this->findBestExistingProductImage($productId);
+        $this->primaryImageResolutionCache[$productId] = $resolved;
+        return $resolved;
+    }
+
+    /**
+     * Find best existing product image by filename convention:
+     * product_{productId}_{timestamp}_{index}.{ext}
+     */
+    private function findBestExistingProductImage(int $productId): ?string
+    {
+        $imagesDir = rtrim(FCPATH, '/\\') . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'productimages' . DIRECTORY_SEPARATOR;
+        $pattern = $imagesDir . 'product_' . $productId . '_*.*';
+        $matches = glob($pattern);
+        if (empty($matches) || !is_array($matches)) {
+            return null;
+        }
+
+        $bestFile = null;
+        $bestTimestamp = -1;
+        $bestIndex = PHP_INT_MAX;
+
+        foreach ($matches as $fullPath) {
+            $name = basename($fullPath);
+            if (preg_match('/^product_' . preg_quote((string)$productId, '/') . '_(\d+)_(\d+)\.(?:jpg|jpeg|png|gif|webp)$/i', $name, $parts) !== 1) {
+                continue;
+            }
+
+            $timestamp = (int)$parts[1];
+            $index = (int)$parts[2];
+
+            if ($timestamp > $bestTimestamp || ($timestamp === $bestTimestamp && $index < $bestIndex)) {
+                $bestTimestamp = $timestamp;
+                $bestIndex = $index;
+                $bestFile = $name;
+            }
+        }
+
+        if ($bestFile !== null) {
+            return $bestFile;
+        }
+
+        return basename($matches[0]);
     }
 
     public function index()
@@ -202,14 +301,16 @@ class Products extends BaseController
             $total = (int)$builder->countAllResults(false);
             $rows = $builder->limit($limit, $offset)->get()->getResultArray();
 
-            $products = array_map(static function (array $row): array {
+            $products = array_map(function (array $row): array {
+                $productId = (int)($row['id'] ?? 0);
+                $resolvedPrimaryImage = $this->resolvePrimaryImageForResponse($productId, $row['primary_image'] ?? null);
                 return [
-                    'id' => (int)($row['id'] ?? 0),
+                    'id' => $productId,
                     'product_name' => (string)($row['product_name'] ?? ''),
                     'slug' => (string)($row['slug'] ?? ''),
                     'short_description' => (string)($row['short_description'] ?? ''),
                     'min_price' => (float)($row['min_price'] ?? 0),
-                    'primary_image' => $row['primary_image'] ?? null,
+                    'primary_image' => $resolvedPrimaryImage,
                     'category' => [
                         'id' => isset($row['category_id']) ? (int)$row['category_id'] : null,
                         'name' => $row['category_name'] ?? null,
@@ -360,14 +461,16 @@ class Products extends BaseController
             $total = (int)$builder->countAllResults(false);
             $rows = $builder->limit($limit, $offset)->get()->getResultArray();
 
-            $products = array_map(static function (array $row): array {
+            $products = array_map(function (array $row): array {
+                $productId = (int)($row['id'] ?? 0);
+                $resolvedPrimaryImage = $this->resolvePrimaryImageForResponse($productId, $row['primary_image'] ?? null);
                 return [
-                    'id' => (int)($row['id'] ?? 0),
+                    'id' => $productId,
                     'product_name' => (string)($row['product_name'] ?? ''),
                     'slug' => (string)($row['slug'] ?? ''),
                     'short_description' => (string)($row['short_description'] ?? ''),
                     'min_price' => (float)($row['min_price'] ?? 0),
-                    'primary_image' => $row['primary_image'] ?? null,
+                    'primary_image' => $resolvedPrimaryImage,
                     'category' => [
                         'id' => isset($row['category_id']) ? (int)$row['category_id'] : null,
                         'name' => $row['category_name'] ?? null,
