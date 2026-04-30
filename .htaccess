@@ -2,9 +2,10 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
     
-    # If request is not for public directory, redirect to it
-    RewriteCond %{REQUEST_URI} !^/khaitan_dev_new/khaitan_api/public/
-    RewriteRule ^(.*)$ /khaitan_dev_new/khaitan_api/public/$1 [L]
+    # If request is not for public directory, redirect to it.
+    # Use relative redirect so this works in both local and production paths.
+    RewriteCond %{REQUEST_URI} !/public/
+    RewriteRule ^(.*)$ public/$1 [L]
 </IfModule>
 
 # Disable directory browsing

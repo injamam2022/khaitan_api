@@ -32,8 +32,9 @@ Options -Indexes
 	Options +FollowSymlinks
 	RewriteEngine On
 
-	# Base path
-	RewriteBase /khaitan_dev_new/khaitan_api/public/
+	# Base path intentionally omitted so this works in both
+	# local (/khaitan_dev_new/khaitan_api/public) and production
+	# (/khaitan_api/public) without editing per environment.
 
 	# Handle OPTIONS preflight - return 200 immediately
 	RewriteCond %{REQUEST_METHOD} OPTIONS
