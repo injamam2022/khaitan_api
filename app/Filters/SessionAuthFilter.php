@@ -27,8 +27,9 @@ class SessionAuthFilter implements FilterInterface
     public function before(RequestInterface $request, $arguments = null)
     {
         $uri = service('uri');
-        $seg1 = strtolower($uri->getSegment(1) ?? '');
-        $seg2 = strtolower($uri->getSegment(2) ?? '');
+        $segments = $uri->getSegments();
+        $seg1 = strtolower((string) ($segments[0] ?? ''));
+        $seg2 = strtolower((string) ($segments[1] ?? ''));
         // Public: login, health, test (path may be "login" or "backend/login")
         if (in_array($seg1, $this->publicRoutes) || in_array($seg2, $this->publicRoutes)) {
             return;
