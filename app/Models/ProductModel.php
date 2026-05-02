@@ -619,6 +619,21 @@ class ProductModel extends Model
         
         return false;
     }
+
+    /**
+     * Soft-delete all non-deleted gallery rows for a product (used by Excel gallery replace).
+     */
+    public function softDeleteActiveProductImages(int $productId): bool
+    {
+        if ($productId <= 0) {
+            return false;
+        }
+        $builder = $this->db->table('product_image');
+        $builder->where('product_id', $productId);
+        $builder->where('status <>', 'DELETED');
+
+        return (bool) $builder->update(['status' => 'DELETED']);
+    }
     
     public function getProductDetails($pid)
     {

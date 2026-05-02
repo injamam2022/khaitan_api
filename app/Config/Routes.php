@@ -49,6 +49,9 @@ $routes->match(['POST', 'OPTIONS'], 'products/bulk/delete', 'Products::bulk_dele
 $routes->match(['POST', 'OPTIONS'], 'products/bulk/status', 'Products::bulk_status');
 $routes->match(['POST', 'OPTIONS'], 'products/bulk/restore', 'Products::bulk_restore');
 $routes->match(['POST', 'OPTIONS'], 'products/bulk/update', 'Products::bulk_update');
+$routes->match(['GET', 'OPTIONS'], 'products/excel/export-active', 'Products::excelExportActive');
+$routes->match(['POST', 'OPTIONS'], 'products/excel/import', 'Products::excelImport');
+$routes->match(['POST', 'OPTIONS'], 'products/excel/delete-all-active', 'Products::excelDeleteAllActive');
 
 // Promo Management Routes
 $routes->GET('promos', 'Promo::index');

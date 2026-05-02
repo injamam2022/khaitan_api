@@ -3064,4 +3064,695 @@ class Products extends BaseController
         }
     }
 
+    /**
+     * Admin: export all ACTIVE products (JSON for client-side .xlsx).
+     * Includes pipe-separated image filenames and full image_urls.
+     */
+    public function excelExportActive()
+    {
+        try {
+            $db = $this->productModel->db;
+            $db->query('SET SESSION group_concat_max_len = 1000000');
+
+            $builder = $db->table('products AS P');
+            $builder->select('P.id, P.product_code, P.sku_number, P.product_name, P.slug, P.category_id, P.subcategory_id, P.brand_id, P.mrp, P.discount, P.discount_off_inpercent, P.gst_rate, P.sale_price, P.final_price, P.stock_quantity, P.status, P.in_stock, P.product_type, P.home_display_status', false);
+            $builder->select('COALESCE(PC.category, \'\') AS category_name', false);
+            $builder->select("CASE WHEN P.brand_id = 0 OR P.brand_id IS NULL THEN '' ELSE COALESCE(PB.brand, '') END AS brand_name", false);
+            $builder->select("(SELECT GROUP_CONCAT(PI.image ORDER BY PI.display_order ASC, PI.id ASC SEPARATOR '|') FROM product_image PI WHERE PI.product_id = CAST(P.id AS UNSIGNED) AND PI.status <> 'DELETED') AS image_filenames", false);
+            $builder->select("(SELECT PD.content FROM product_descriptions PD WHERE PD.product_id = P.id AND PD.description_type = 'short' AND PD.language_code = 'en' AND PD.status <> 'DELETED' ORDER BY PD.id ASC LIMIT 1) AS short_description", false);
+            $builder->join('product_category AS PC', 'P.category_id = PC.id AND PC.status <> \'DELETED\'', 'left');
+            $builder->join('product_brand AS PB', 'P.brand_id = PB.id AND P.brand_id > 0 AND PB.status <> \'DELETED\'', 'left');
+            $builder->where('P.status', 'ACTIVE');
+            $builder->orderBy('P.home_display_order', 'ASC');
+            $builder->orderBy('P.id', 'ASC');
+            $rows = $builder->get()->getResultArray();
+
+            $base = rtrim((string) (config('App')->baseURL ?? ''), '/');
+            if ($base === '' || !preg_match('#^https?://#i', $base)) {
+                $base = rtrim(base_url(), '/');
+            }
+
+            $out = [];
+            foreach ($rows as $row) {
+                $raw = isset($row['image_filenames']) && is_string($row['image_filenames']) ? $row['image_filenames'] : '';
+                $files = $raw !== '' ? explode('|', $raw) : [];
+                $urls = [];
+                foreach ($files as $f) {
+                    $f = trim((string) $f);
+                    if ($f === '') {
+                        continue;
+                    }
+                    if (preg_match('#^https?://#i', $f)) {
+                        $urls[] = $f;
+                    } else {
+                        $urls[] = $base . '/assets/productimages/' . $f;
+                    }
+                }
+                $row['image_urls'] = implode(' | ', $urls);
+                $row['primary_image_url'] = $urls[0] ?? '';
+
+                // Fixed column order: one row = one product; all image_* cells belong to that row's id / product_name.
+                $out[] = [
+                    'id' => $row['id'] ?? null,
+                    'product_code' => $row['product_code'] ?? '',
+                    'sku_number' => $row['sku_number'] ?? '',
+                    'product_name' => $row['product_name'] ?? '',
+                    'slug' => $row['slug'] ?? '',
+                    'category_id' => $row['category_id'] ?? null,
+                    'category_name' => $row['category_name'] ?? '',
+                    'subcategory_id' => $row['subcategory_id'] ?? null,
+                    'brand_id' => $row['brand_id'] ?? null,
+                    'brand_name' => $row['brand_name'] ?? '',
+                    'mrp' => $row['mrp'] ?? null,
+                    'discount' => $row['discount'] ?? null,
+                    'discount_off_inpercent' => $row['discount_off_inpercent'] ?? null,
+                    'gst_rate' => $row['gst_rate'] ?? null,
+                    'sale_price' => $row['sale_price'] ?? null,
+                    'final_price' => $row['final_price'] ?? null,
+                    'stock_quantity' => $row['stock_quantity'] ?? null,
+                    'status' => $row['status'] ?? '',
+                    'in_stock' => $row['in_stock'] ?? '',
+                    'product_type' => $row['product_type'] ?? '',
+                    'home_display_status' => $row['home_display_status'] ?? '',
+                    'short_description' => $row['short_description'] ?? '',
+                    'primary_image_url' => $row['primary_image_url'],
+                    'image_filenames' => $raw,
+                    'image_urls' => $row['image_urls'],
+                ];
+            }
+
+            return json_success([
+                'filename' => 'products-active-' . date('Y-m-d') . '.xlsx',
+                'rows' => $out,
+            ], 'Export ready');
+        } catch (\Throwable $e) {
+            log_message('error', 'Products::excelExportActive: ' . $e->getMessage());
+            return json_error('Export failed: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Admin: bulk import/update from Excel-parsed rows (JSON).
+     * Row with numeric id updates existing; row without id creates new (product_code + product_name required).
+     */
+    public function excelImport()
+    {
+        $this->response->setContentType('application/json');
+        try {
+            $payload = $this->request->getJSON(true);
+            if (!is_array($payload)) {
+                return json_error('Invalid JSON body', 400);
+            }
+            $rows = $payload['rows'] ?? null;
+            if (!is_array($rows) || count($rows) === 0) {
+                return json_error('rows must be a non-empty array', 400);
+            }
+
+            $maxRows = 500;
+            if (count($rows) > $maxRows) {
+                return json_error('Maximum ' . $maxRows . ' rows per import', 400);
+            }
+
+            $session = \Config\Services::session();
+            $checkuservars = $session->get();
+            $created_id = $checkuservars['userid'] ?? null;
+            $created_on = date('Y-m-d H:i:s');
+
+            $created = 0;
+            $updated = 0;
+            $errors = [];
+
+            foreach ($rows as $idx => $rawRow) {
+                if (!is_array($rawRow)) {
+                    $errors[] = ['row' => $idx + 1, 'message' => 'Invalid row'];
+                    continue;
+                }
+                $row = $this->normalizeExcelImportRow($rawRow);
+                $imgMeta = $this->excelImageFilenamesFromRawRow($rawRow);
+                $line = $idx + 1;
+
+                $id = isset($row['id']) && is_numeric($row['id']) ? (int) $row['id'] : 0;
+
+                if ($id > 0) {
+                    $res = $this->excelImportUpdateRow($id, $row, $created_id, $created_on, $imgMeta);
+                    if ($res['ok']) {
+                        $updated++;
+                    } else {
+                        $errors[] = ['row' => $line, 'message' => $res['error']];
+                    }
+                } else {
+                    $res = $this->excelImportCreateRow($row, $created_id, $created_on, $imgMeta);
+                    if ($res['ok']) {
+                        $created++;
+                    } else {
+                        $errors[] = ['row' => $line, 'message' => $res['error']];
+                    }
+                }
+            }
+
+            return json_success([
+                'created' => $created,
+                'updated' => $updated,
+                'errors' => $errors,
+            ], 'Import finished');
+        } catch (\Throwable $e) {
+            log_message('error', 'Products::excelImport: ' . $e->getMessage());
+            return json_error('Import failed: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Soft-delete every ACTIVE product (requires explicit confirmation phrase).
+     */
+    public function excelDeleteAllActive()
+    {
+        $this->response->setContentType('application/json');
+        try {
+            $payload = $this->request->getJSON(true);
+            if (!is_array($payload)) {
+                $payload = [];
+            }
+            $confirm = (string) ($payload['confirm'] ?? $this->request->getPost('confirm') ?? '');
+            if ($confirm !== 'DELETE_ALL_ACTIVE_PRODUCTS') {
+                return json_error('Invalid confirmation. Send confirm: "DELETE_ALL_ACTIVE_PRODUCTS".', 400);
+            }
+
+            $builder = $this->productModel->db->table('products');
+            $builder->select('id');
+            $builder->where('status', 'ACTIVE');
+            $ids = array_map(static fn ($r) => (int) ($r['id'] ?? 0), $builder->get()->getResultArray());
+            $ids = array_values(array_filter($ids, static fn ($i) => $i > 0));
+
+            if (count($ids) === 0) {
+                return json_success(['deleted' => 0], 'No active products to delete');
+            }
+
+            $this->productModel->bulkDeleteProducts($ids);
+
+            return json_success(['deleted' => count($ids)], 'All active products moved to trash');
+        } catch (\Throwable $e) {
+            log_message('error', 'Products::excelDeleteAllActive: ' . $e->getMessage());
+            return json_error('Delete failed: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Detect whether the import row includes an image_filenames column (even if empty).
+     *
+     * @param array<string, mixed> $raw
+     * @return array{provided: bool, value: string}
+     */
+    private function excelImageFilenamesFromRawRow(array $raw): array
+    {
+        foreach ($raw as $k => $v) {
+            $key = strtolower(trim(preg_replace('/\s+/', '_', (string) $k)));
+            $key = str_replace(['-', '/'], '_', $key);
+            if ($key === 'image_filenames') {
+                if ($v === null) {
+                    return ['provided' => true, 'value' => ''];
+                }
+
+                return ['provided' => true, 'value' => trim((string) $v)];
+            }
+        }
+
+        return ['provided' => false, 'value' => ''];
+    }
+
+    /**
+     * Validate pipe-separated basenames exist under assets/productimages/.
+     *
+     * @return string|null Error message, or null if OK (including empty list)
+     */
+    private function validateExcelGalleryFilenames(string $pipeList): ?string
+    {
+        $pipeList = trim($pipeList);
+        if ($pipeList === '') {
+            return null;
+        }
+
+        $parts = array_map('trim', explode('|', $pipeList));
+        $parts = array_values(array_filter($parts, static fn ($s) => $s !== ''));
+        $imagesDir = rtrim(FCPATH, '/\\') . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'productimages' . DIRECTORY_SEPARATOR;
+
+        $seen = [];
+        foreach ($parts as $name) {
+            if (strpos($name, '://') !== false || str_contains($name, '/') || str_contains($name, '\\')) {
+                return 'image_filenames must be file names only (no paths or URLs): ' . $name;
+            }
+            $base = basename($name);
+            if ($base !== $name) {
+                return 'Invalid image filename: ' . $name;
+            }
+            if ($base === '' || strpos($base, '..') !== false) {
+                return 'Invalid image filename: ' . $name;
+            }
+            if (!preg_match('/^[a-zA-Z0-9._-]+$/', $base)) {
+                return 'Invalid characters in image filename: ' . $base;
+            }
+            if (isset($seen[$base])) {
+                return 'Duplicate image filename in list: ' . $base;
+            }
+            $seen[$base] = true;
+            if (!is_file($imagesDir . $base)) {
+                return 'Image file not found in assets/productimages/: ' . $base;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Replace product gallery with the given ordered filenames (DB rows only; files must already exist on disk).
+     * Empty list soft-deletes all gallery images for the product.
+     *
+     * @return string|null Error message, or null on success
+     */
+    private function syncProductGalleryFromFilenames(int $productId, string $pipeList, $created_id, string $created_on): ?string
+    {
+        if ($productId <= 0) {
+            return 'Invalid product id for gallery sync';
+        }
+
+        $err = $this->validateExcelGalleryFilenames($pipeList);
+        if ($err !== null) {
+            return $err;
+        }
+
+        $parts = array_map('trim', explode('|', trim($pipeList)));
+        $parts = array_values(array_filter($parts, static fn ($s) => $s !== ''));
+
+        $db = $this->productModel->db;
+        $db->transStart();
+
+        $this->productModel->softDeleteActiveProductImages($productId);
+
+        $order = 0;
+        foreach ($parts as $name) {
+            $base = basename($name);
+            $ins = $this->productModel->insertProductImage([
+                'image' => $base,
+                'product_id' => $productId,
+                'display_order' => $order,
+                'created_on' => $created_on,
+                'created_id' => $created_id,
+                'status' => 'ACTIVE',
+            ]);
+            if ($ins === false) {
+                $db->transRollback();
+
+                return 'Failed to insert product_image row for ' . $base;
+            }
+            $order++;
+        }
+
+        $db->transComplete();
+        if ($db->transStatus() === false) {
+            return 'Gallery database transaction failed';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
+    private function normalizeExcelImportRow(array $raw): array
+    {
+        $norm = [];
+        foreach ($raw as $k => $v) {
+            $key = strtolower(trim(preg_replace('/\s+/', '_', (string) $k)));
+            $key = str_replace(['-', '/'], '_', $key);
+            $norm[$key] = $v;
+        }
+
+        $pick = static function (array $n, array $keys) {
+            foreach ($keys as $key) {
+                if (!array_key_exists($key, $n)) {
+                    continue;
+                }
+                $v = $n[$key];
+                if ($v === null) {
+                    return null;
+                }
+                if (is_string($v) && trim($v) === '') {
+                    continue;
+                }
+                return $v;
+            }
+            return null;
+        };
+
+        return [
+            'id' => $pick($norm, ['id']),
+            'product_code' => $pick($norm, ['product_code', 'productcode']),
+            'sku_number' => $pick($norm, ['sku_number', 'sku']),
+            'product_name' => $pick($norm, ['product_name', 'productname', 'name']),
+            'slug' => $pick($norm, ['slug']),
+            'category_id' => $pick($norm, ['category_id', 'categoryid']),
+            'subcategory_id' => $pick($norm, ['subcategory_id', 'subcategoryid']),
+            'brand_id' => $pick($norm, ['brand_id', 'brandid']),
+            'mrp' => $pick($norm, ['mrp', 'product_price', 'productprice', 'price']),
+            'discount' => $pick($norm, ['discount', 'discount_price', 'discountprice', 'discount_inr']),
+            'discount_off_inpercent' => $pick($norm, ['discount_off_inpercent', 'discount_percent', 'discountpercent']),
+            'gst_rate' => $pick($norm, ['gst_rate', 'gstrate']),
+            'stock_quantity' => $pick($norm, ['stock_quantity', 'stock', 'quantity']),
+            'status' => $pick($norm, ['status']),
+            'short_description' => $pick($norm, ['short_description', 'shortdescription', 'description']),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array{provided: bool, value: string} $imgMeta
+     * @return array{ok: bool, error?: string}
+     */
+    private function excelImportUpdateRow(int $id, array $row, $created_id, string $created_on, array $imgMeta): array
+    {
+        $current = $this->productModel->getProductDetails($id);
+        if (empty($current)) {
+            return ['ok' => false, 'error' => 'Product id ' . $id . ' not found'];
+        }
+
+        $pArr = [];
+        $product_code = isset($row['product_code']) ? trim((string) $row['product_code']) : '';
+        if ($product_code === '') {
+            $product_code = trim((string) ($current['product_code'] ?? ''));
+        }
+        if ($product_code === '') {
+            return ['ok' => false, 'error' => 'product_code is required for update'];
+        }
+        $currentCode = trim((string) ($current['product_code'] ?? ''));
+        if ($product_code !== $currentCode) {
+            $dup = $this->productModel->productCode_edit($id, $product_code);
+            if (!empty($dup)) {
+                return ['ok' => false, 'error' => 'Product code already in use'];
+            }
+            $pArr['product_code'] = $product_code;
+        }
+
+        if (isset($row['product_name']) && trim((string) $row['product_name']) !== '') {
+            $pArr['product_name'] = trim((string) $row['product_name']);
+        }
+        if (array_key_exists('sku_number', $row) && $row['sku_number'] !== null) {
+            $pArr['sku_number'] = trim((string) $row['sku_number']) === '' ? null : trim((string) $row['sku_number']);
+        }
+
+        $category_id_raw = $row['category_id'] ?? null;
+        if ($category_id_raw !== null && $category_id_raw !== '') {
+            $cid = (int) $category_id_raw;
+            if ($cid > 0) {
+                $category_check = $this->productModel->getProductCategoryList('ACTIVE');
+                $category_exists = false;
+                foreach ($category_check as $cat) {
+                    if ((int) ($cat['id'] ?? 0) === $cid) {
+                        $category_exists = true;
+                        break;
+                    }
+                }
+                if (!$category_exists) {
+                    $category_check_inactive = $this->productModel->getProductCategoryList('INACTIVE');
+                    foreach ($category_check_inactive as $cat) {
+                        if ((int) ($cat['id'] ?? 0) === $cid) {
+                            $category_exists = true;
+                            break;
+                        }
+                    }
+                }
+                if (!$category_exists) {
+                    return ['ok' => false, 'error' => 'category_id ' . $cid . ' does not exist'];
+                }
+                $pArr['category_id'] = $cid;
+            } else {
+                $pArr['category_id'] = null;
+            }
+        }
+
+        if (array_key_exists('subcategory_id', $row) && $row['subcategory_id'] !== null && $row['subcategory_id'] !== '') {
+            $sid = (int) $row['subcategory_id'];
+            $pArr['subcategory_id'] = $sid > 0 ? $sid : null;
+        }
+
+        if (array_key_exists('brand_id', $row) && $row['brand_id'] !== null && $row['brand_id'] !== '') {
+            $pArr['brand_id'] = (int) $row['brand_id'];
+        }
+
+        $mrp_provided = array_key_exists('mrp', $row) && $row['mrp'] !== null && $row['mrp'] !== '';
+        $discount_provided = array_key_exists('discount', $row) && $row['discount'] !== null && $row['discount'] !== '';
+        $discount_percent_provided = array_key_exists('discount_off_inpercent', $row) && $row['discount_off_inpercent'] !== null && $row['discount_off_inpercent'] !== '';
+        $gst_rate_provided = array_key_exists('gst_rate', $row) && $row['gst_rate'] !== null && $row['gst_rate'] !== '';
+
+        if ($mrp_provided || $discount_provided || $discount_percent_provided || $gst_rate_provided) {
+            $mrp = $mrp_provided ? floatval($row['mrp']) : floatval($current['mrp'] ?? $current['product_price'] ?? 0);
+            $discount = $discount_provided ? floatval($row['discount']) : floatval($current['discount'] ?? $current['discount_price'] ?? 0);
+            $discount_off_inpercent = $discount_percent_provided ? floatval($row['discount_off_inpercent']) : floatval($current['discount_off_inpercent'] ?? 0);
+            $gst_rate = $gst_rate_provided ? floatval($row['gst_rate']) : floatval($current['gst_rate'] ?? 0);
+            $pricing = calculate_all_prices($mrp, $discount, $discount_off_inpercent, $gst_rate);
+            $pArr['mrp'] = $pricing['mrp'];
+            $pArr['discount'] = $pricing['discount'];
+            $pArr['discount_off_inpercent'] = $pricing['discount_off_inpercent'];
+            $pArr['sale_price'] = $pricing['sale_price'];
+            $pArr['final_price'] = $pricing['final_price'];
+            $pArr['product_price'] = $mrp;
+            $pArr['discount_price'] = $discount;
+            if ($gst_rate_provided) {
+                $pArr['gst_rate'] = $gst_rate;
+            }
+        }
+
+        if (array_key_exists('stock_quantity', $row) && $row['stock_quantity'] !== null && $row['stock_quantity'] !== '') {
+            $stock_validation = validate_stock_quantity($row['stock_quantity'], 0);
+            if ($stock_validation['valid']) {
+                $stock_data = prepare_stock_data($stock_validation['value']);
+                $pArr['stock_quantity'] = $stock_data['stock_quantity'];
+                $pArr['in_stock'] = $stock_data['in_stock'];
+            }
+        }
+
+        if (array_key_exists('status', $row) && $row['status'] !== null && $row['status'] !== '') {
+            $st = strtoupper(trim((string) $row['status']));
+            if (in_array($st, ['ACTIVE', 'INACTIVE', 'DELETED'], true)) {
+                $pArr['status'] = $st;
+            }
+        }
+
+        if (isset($row['slug']) && is_string($row['slug']) && trim($row['slug']) !== '') {
+            $slug = strtolower(trim($row['slug']));
+            $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
+            $slug = preg_replace('/^-+|-+$/', '', $slug);
+            if ($slug !== '' && $this->productModel->productSlugExists($slug, $id)) {
+                return ['ok' => false, 'error' => 'Slug already exists'];
+            }
+            if ($slug !== '') {
+                $pArr['slug'] = $slug;
+            }
+        } elseif (!empty($pArr['product_name'])) {
+            $slug = strtolower(trim($pArr['product_name']));
+            $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
+            $slug = preg_replace('/^-+|-+$/', '', $slug);
+            if ($slug !== '' && !$this->productModel->productSlugExists($slug, $id)) {
+                $pArr['slug'] = $slug;
+            }
+        }
+
+        $hasShort = array_key_exists('short_description', $row)
+            && $row['short_description'] !== null
+            && trim((string) $row['short_description']) !== '';
+        $hasImg = !empty($imgMeta['provided']);
+
+        if (empty($pArr) && !$hasShort && !$hasImg) {
+            return ['ok' => false, 'error' => 'No updatable fields'];
+        }
+
+        if (!empty($pArr)) {
+            $ok = $this->productModel->updateProduct($id, $pArr);
+            if (!$ok) {
+                return ['ok' => false, 'error' => 'Database update failed'];
+            }
+        }
+
+        if ($hasShort) {
+            $this->productModel->upsertProductDescription($id, 'short', trim((string) $row['short_description']), 'en', $created_id);
+        }
+
+        if ($hasImg) {
+            $gErr = $this->syncProductGalleryFromFilenames($id, (string) ($imgMeta['value'] ?? ''), $created_id, $created_on);
+            if ($gErr !== null) {
+                return ['ok' => false, 'error' => $gErr];
+            }
+        }
+
+        if (!empty($pArr) || $hasImg) {
+            EasyEcomSyncService::fire(fn ($s) => $s->updateProduct($id));
+        }
+
+        return ['ok' => true];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array{provided: bool, value: string} $imgMeta
+     * @return array{ok: bool, error?: string}
+     */
+    private function excelImportCreateRow(array $row, $created_id, string $created_on, array $imgMeta): array
+    {
+        $product_code = isset($row['product_code']) ? trim((string) $row['product_code']) : '';
+        $product_name = isset($row['product_name']) ? trim((string) $row['product_name']) : '';
+        if ($product_code === '' || $product_name === '') {
+            return ['ok' => false, 'error' => 'product_code and product_name are required for new rows'];
+        }
+
+        $exists = $this->productModel->productCodeExists($product_code);
+        if (!empty($exists)) {
+            return ['ok' => false, 'error' => 'Product code already exists'];
+        }
+
+        $category_id_raw = $row['category_id'] ?? null;
+        $final_category_id = null;
+        if ($category_id_raw !== null && $category_id_raw !== '') {
+            $cid = (int) $category_id_raw;
+            if ($cid > 0) {
+                $category_check = $this->productModel->getProductCategoryList('ACTIVE');
+                foreach ($category_check as $cat) {
+                    if ((int) ($cat['id'] ?? 0) === $cid) {
+                        $final_category_id = $cid;
+                        break;
+                    }
+                }
+                if ($final_category_id === null) {
+                    return ['ok' => false, 'error' => 'category_id does not exist'];
+                }
+            }
+        }
+
+        $subcategory_id = null;
+        if (!empty($row['subcategory_id'])) {
+            $subcategory_id = (int) $row['subcategory_id'];
+            if ($subcategory_id <= 0) {
+                $subcategory_id = null;
+            }
+        }
+
+        $brand_id = isset($row['brand_id']) && $row['brand_id'] !== '' && $row['brand_id'] !== null
+            ? (int) $row['brand_id'] : null;
+        if ($brand_id === null || $brand_id <= 0) {
+            $brand_list = $this->productModel->getProductBrandList('ACTIVE');
+            $brand_id = (!empty($brand_list) && isset($brand_list[0]['id'])) ? (int) $brand_list[0]['id'] : 0;
+        }
+
+        $slug = null;
+        if (!empty($row['slug']) && is_string($row['slug'])) {
+            $slug = strtolower(trim($row['slug']));
+            $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
+            $slug = preg_replace('/^-+|-+$/', '', $slug);
+        }
+        if (empty($slug)) {
+            $slug = strtolower(trim($product_name));
+            $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
+            $slug = preg_replace('/^-+|-+$/', '', $slug);
+        }
+        if (empty($slug)) {
+            return ['ok' => false, 'error' => 'Could not generate slug'];
+        }
+        $baseSlug = $slug;
+        $n = 0;
+        while ($this->productModel->productSlugExists($slug)) {
+            $n++;
+            $slug = $baseSlug . '-' . $n;
+            if ($n > 50) {
+                return ['ok' => false, 'error' => 'Could not allocate unique slug'];
+            }
+        }
+
+        $mrp = isset($row['mrp']) && $row['mrp'] !== '' ? floatval($row['mrp']) : 0;
+        $discount = isset($row['discount']) && $row['discount'] !== '' ? floatval($row['discount']) : 0;
+        $discount_off_inpercent = isset($row['discount_off_inpercent']) && $row['discount_off_inpercent'] !== '' ? floatval($row['discount_off_inpercent']) : 0;
+        $gst_rate = isset($row['gst_rate']) && $row['gst_rate'] !== '' ? floatval($row['gst_rate']) : 0;
+
+        $unit_list = $this->productModel->getUnitList('ACTIVE');
+        $unit_id = (!empty($unit_list) && isset($unit_list[0]['id'])) ? (int) $unit_list[0]['id'] : null;
+        $unit_name = null;
+        if ($unit_id !== null && $unit_id > 0) {
+            $unitDetails = $this->productModel->getUnitDetails('ACTIVE', $unit_id);
+            $unit_name = (!empty($unitDetails) && isset($unitDetails[0]['unit_name']) && $unitDetails[0]['unit_name'] != '') ? $unitDetails[0]['unit_name'] : null;
+        }
+
+        $sku_number = isset($row['sku_number']) && trim((string) $row['sku_number']) !== ''
+            ? trim((string) $row['sku_number'])
+            : ('SKU-' . time() . '-' . random_int(1000, 9999));
+
+        $stock_raw = $row['stock_quantity'] ?? 0;
+        $stock_validation = validate_stock_quantity($stock_raw, 0);
+        $stock_quantity = $stock_validation['valid'] ? $stock_validation['value'] : 0;
+        $stock_data = prepare_stock_data($stock_quantity);
+
+        $pricing = calculate_all_prices($mrp, $discount, $discount_off_inpercent, $gst_rate);
+
+        $status = 'ACTIVE';
+        if (!empty($row['status'])) {
+            $st = strtoupper(trim((string) $row['status']));
+            if (in_array($st, ['ACTIVE', 'INACTIVE'], true)) {
+                $status = $st;
+            }
+        }
+
+        if (!empty($imgMeta['provided']) && trim((string) ($imgMeta['value'] ?? '')) !== '') {
+            $imgErr = $this->validateExcelGalleryFilenames((string) $imgMeta['value']);
+            if ($imgErr !== null) {
+                return ['ok' => false, 'error' => $imgErr];
+            }
+        }
+
+        $productArr = [
+            'category_id' => $final_category_id,
+            'subcategory_id' => $subcategory_id,
+            'brand_id' => (int) $brand_id,
+            'product_code' => $product_code,
+            'product_name' => $product_name,
+            'slug' => $slug,
+            'model' => null,
+            'mrp' => $pricing['mrp'],
+            'discount' => $pricing['discount'],
+            'discount_off_inpercent' => $pricing['discount_off_inpercent'],
+            'sale_price' => $pricing['sale_price'],
+            'final_price' => $pricing['final_price'],
+            'unit_id' => $unit_id,
+            'unit_name' => $unit_name,
+            'product_price' => $mrp,
+            'discount_price' => $discount,
+            'sku_number' => $sku_number,
+            'stock_quantity' => $stock_data['stock_quantity'],
+            'in_stock' => $stock_data['in_stock'],
+            'gst_rate' => $gst_rate,
+            'visibility' => 'PUBLIC',
+            'featured' => 'NO',
+            'home_display_order' => 0,
+            'created_id' => $created_id,
+            'created_on' => $created_on,
+            'status' => $status,
+            'product_type' => 'NA',
+        ];
+
+        $product_id = $this->productModel->insertProduct($productArr);
+        if ($product_id === false || $product_id <= 0) {
+            return ['ok' => false, 'error' => 'Insert failed'];
+        }
+
+        if (!empty($row['short_description']) && trim((string) $row['short_description']) !== '') {
+            $this->productModel->upsertProductDescription((int) $product_id, 'short', trim((string) $row['short_description']), 'en', $created_id);
+        }
+
+        if (!empty($imgMeta['provided'])) {
+            $gErr = $this->syncProductGalleryFromFilenames((int) $product_id, (string) ($imgMeta['value'] ?? ''), $created_id, $created_on);
+            if ($gErr !== null) {
+                return ['ok' => false, 'error' => $gErr . ' (product was created without gallery links; fix files and import again.)'];
+            }
+        }
+
+        EasyEcomSyncService::fire(fn ($s) => $s->syncProduct((int) $product_id, $productArr));
+
+        return ['ok' => true];
+    }
+
 }
