@@ -280,6 +280,7 @@ class Products extends BaseController
                 'left'
             );
             $builder->where('P.status <>', 'DELETED');
+            $builder->where("{$priceExpr} >", 0, false);
 
             if ($searchTerms !== '') {
                 $builder->groupStart()
@@ -480,6 +481,7 @@ class Products extends BaseController
                 'left'
             );
             $builder->where('P.status <>', 'DELETED');
+            $builder->where("{$priceExpr} >", 0, false);
 
             if ($subcategoryKey !== '') {
                 $escapedSub = $this->productModel->db->escape($subcategoryKey);
