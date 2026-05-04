@@ -52,7 +52,9 @@ $routes->match(['POST', 'OPTIONS'], 'products/bulk/status', 'Products::bulk_stat
 $routes->match(['POST', 'OPTIONS'], 'products/bulk/restore', 'Products::bulk_restore');
 $routes->match(['POST', 'OPTIONS'], 'products/bulk/update', 'Products::bulk_update');
 $routes->match(['GET', 'OPTIONS'], 'products/excel/export-active', 'Products::excelExportActive');
+// Primary path for SPA; `/import` triggers some host WAFs — keep alias for older clients/scripts.
 $routes->match(['POST', 'OPTIONS'], 'products/excel/import', 'Products::excelImport');
+$routes->match(['POST', 'OPTIONS'], 'products/excel/upsert', 'Products::excelImport');
 $routes->match(['POST', 'OPTIONS'], 'products/excel/delete-all-active', 'Products::excelDeleteAllActive');
 
 // Promo Management Routes
@@ -189,6 +191,11 @@ $routes->GET('cron/inventory-sync', 'Cron\InventorySync::index');
 $routes->GET('cron/stock-sync-push', 'Cron\StockSyncPush::index');
 $routes->GET('cron/order-status-sync', 'Cron\OrderStatusSync::index');
 $routes->GET('cron/easyecom-retry', 'Cron\EasyEcomRetry::index');
+
+// Contact enquiries (admin list/export/delete; session auth via check_auth in controller)
+$routes->GET('contact-enquiries', 'ContactEnquiries::index');
+$routes->match(['GET', 'OPTIONS'], 'contact-enquiries/export', 'ContactEnquiries::export');
+$routes->match(['POST', 'OPTIONS'], 'contact-enquiries/delete', 'ContactEnquiries::bulkDelete');
 
 // Health Check Routes (Production Safe)
 $routes->GET('health', 'Health::index');

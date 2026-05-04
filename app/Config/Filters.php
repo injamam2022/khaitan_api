@@ -128,6 +128,8 @@ class Filters extends BaseFilters
                 'delivery/*',
                 'easyecom',
                 'easyecom/*',
+                'contact-enquiries',
+                'contact-enquiries/*',
                 'webhooks',
                 'webhooks/*',
                 'api',
