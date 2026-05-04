@@ -85,7 +85,7 @@ class SessionAuthFilter implements FilterInterface
         $isUploadRequest = false;
         if (strtoupper($request->getMethod()) === 'POST') {
             $path = strtolower($uri->getPath() ?? '');
-            $uploadPaths = ['products/add', 'products/edit', 'product-images', 'variation-images', 
+            $uploadPaths = ['products/add', 'products/edit', 'products/catalog', 'product-images', 'variation-images',
                            'product-description-images', 'brochure', 'specification'];
             foreach ($uploadPaths as $uploadPath) {
                 if (strpos($path, $uploadPath) !== false) {

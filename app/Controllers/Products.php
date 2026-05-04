@@ -3159,10 +3159,28 @@ class Products extends BaseController
     {
         $this->response->setContentType('application/json');
         try {
-            $payload = $this->request->getJSON(true);
-            if (!is_array($payload)) {
-                return json_error('Invalid JSON body', 400);
+            $payload = null;
+            $contentType = (string) $this->request->getHeaderLine('Content-Type');
+
+            // Multipart avoids many host WAF rules that reject large application/json POST bodies / paths containing "excel" or "import".
+            if (stripos($contentType, 'multipart/form-data') !== false) {
+                $raw = $this->request->getPost('payload');
+                if (is_string($raw) && $raw !== '') {
+                    $decoded = json_decode($raw, true);
+                    if (is_array($decoded)) {
+                        $payload = $decoded;
+                    }
+                }
+                if ($payload === null) {
+                    return json_error('Multipart requests must send a payload field containing JSON {"rows":[...]}', 400);
+                }
+            } else {
+                $payload = $this->request->getJSON(true);
+                if (!is_array($payload)) {
+                    return json_error('Invalid JSON body', 400);
+                }
             }
+
             $rows = $payload['rows'] ?? null;
             if (!is_array($rows) || count($rows) === 0) {
                 return json_error('rows must be a non-empty array', 400);

@@ -52,9 +52,10 @@ $routes->match(['POST', 'OPTIONS'], 'products/bulk/status', 'Products::bulk_stat
 $routes->match(['POST', 'OPTIONS'], 'products/bulk/restore', 'Products::bulk_restore');
 $routes->match(['POST', 'OPTIONS'], 'products/bulk/update', 'Products::bulk_update');
 $routes->match(['GET', 'OPTIONS'], 'products/excel/export-active', 'Products::excelExportActive');
-// Primary path for SPA; `/import` triggers some host WAFs — keep alias for older clients/scripts.
+// Excel row sync aliases (SPA prefers catalogue path + multipart; some WAFs block "import"/raw JSON POST).
 $routes->match(['POST', 'OPTIONS'], 'products/excel/import', 'Products::excelImport');
 $routes->match(['POST', 'OPTIONS'], 'products/excel/upsert', 'Products::excelImport');
+$routes->match(['POST', 'OPTIONS'], 'products/catalog/apply-rows', 'Products::excelImport');
 $routes->match(['POST', 'OPTIONS'], 'products/excel/delete-all-active', 'Products::excelDeleteAllActive');
 
 // Promo Management Routes
