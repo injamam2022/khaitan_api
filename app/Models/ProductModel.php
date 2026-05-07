@@ -841,7 +841,11 @@ class ProductModel extends Model
 
             // Convert image paths to full URLs
             if (!preg_match('/^https?:\/\//', $rawImage)) {
-                $image['image'] = $this->getAssetUrl('assets/productimages/' . $rawImage);
+                if (strpos($rawImage, 'assets/') === 0) {
+                    $image['image'] = $this->getAssetUrl($rawImage);
+                } else {
+                    $image['image'] = $this->getAssetUrl('assets/productimages/' . $rawImage);
+                }
             } else {
                 $image['image'] = $rawImage;
             }
@@ -937,7 +941,11 @@ class ProductModel extends Model
                 // Convert image path to full URL
                 $imageUrl = $rawImage;
                 if (!empty($imageUrl) && !preg_match('/^https?:\/\//', $imageUrl)) {
-                    $imageUrl = $this->getAssetUrl('assets/productimages/' . $imageUrl);
+                    if (strpos($imageUrl, 'assets/') === 0) {
+                        $imageUrl = $this->getAssetUrl($imageUrl);
+                    } else {
+                        $imageUrl = $this->getAssetUrl('assets/productimages/' . $imageUrl);
+                    }
                 }
                 
                 $imagesByVar[$vid][] = [
@@ -1537,9 +1545,12 @@ class ProductModel extends Model
             if (isset($image['image']) && !empty($image['image'])) {
                 // Skip if already a full URL or base64 data URL
                 if (!preg_match('/^https?:\/\//', $image['image']) && !preg_match('/^data:image\//', $image['image'])) {
-                    // It's a relative path, convert to full URL
-                    // Image is stored as filename only (e.g., "product_13_1770753985_0.webp")
-                    $image['image'] = $this->getAssetUrl('assets/productimages/' . $image['image']);
+                    // Relative path can be either filename-only or assets/productimages/... .
+                    if (strpos($image['image'], 'assets/') === 0) {
+                        $image['image'] = $this->getAssetUrl($image['image']);
+                    } else {
+                        $image['image'] = $this->getAssetUrl('assets/productimages/' . $image['image']);
+                    }
                 }
             }
         }
