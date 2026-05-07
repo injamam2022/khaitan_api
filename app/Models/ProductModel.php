@@ -115,6 +115,19 @@ class ProductModel extends Model
             return 'http://localhost/backend/' . $path;
         }
     }
+
+    /**
+     * Normalize legacy absolute asset URLs that still point to /backend/assets/.
+     * Current production static assets are served from /khaitan_api/public/assets/.
+     */
+    private function normalizeAbsoluteAssetUrl(string $url): string
+    {
+        if (!preg_match('/^https?:\/\//', $url)) {
+            return $url;
+        }
+
+        return str_replace('/backend/assets/', '/khaitan_api/public/assets/', $url);
+    }
     
     // Category Methods
     public function getProductCategoryList($status = null)
@@ -2005,8 +2018,13 @@ class ProductModel extends Model
         // Process specifications to convert icon paths to full URLs
         foreach ($specifications as &$spec) {
             if (isset($spec['icon']) && !empty($spec['icon'])) {
-                // Skip if already a full URL or base64 data
-                if (!preg_match('/^https?:\/\//', $spec['icon']) && !preg_match('/^data:image\//', $spec['icon'])) {
+                // Skip if base64 data
+                if (!preg_match('/^data:image\//', $spec['icon'])) {
+                    if (preg_match('/^https?:\/\//', $spec['icon'])) {
+                        $spec['icon'] = $this->normalizeAbsoluteAssetUrl($spec['icon']);
+                        continue;
+                    }
+
                     // It's a relative path, convert to full URL
                     if (strpos($spec['icon'], 'assets/') === 0) {
                         $spec['icon'] = $this->getAssetUrl($spec['icon']);
