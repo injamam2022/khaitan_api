@@ -806,16 +806,37 @@ class ProductModel extends Model
         
         $images = $builder->get()->getResultArray();
         
-        // Convert image paths to full URLs
-        foreach ($images as &$image) {
-            if (isset($image['image']) && !empty($image['image'])) {
-                if (!preg_match('/^https?:\/\//', $image['image'])) {
-                    $image['image'] = $this->getAssetUrl('assets/productimages/' . $image['image']);
-                }
+        $validImages = [];
+
+        foreach ($images as $image) {
+            $rawImage = (string)($image['image'] ?? '');
+            if ($rawImage === '') {
+                continue;
             }
+
+            $imageBaseName = '';
+            if (preg_match('/^https?:\/\//', $rawImage)) {
+                $parsedPath = parse_url($rawImage, PHP_URL_PATH);
+                $imageBaseName = $parsedPath ? basename($parsedPath) : '';
+            } else {
+                $imageBaseName = basename($rawImage);
+            }
+
+            if ($imageBaseName === '' || !is_file(rtrim(FCPATH, '/\\') . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'productimages' . DIRECTORY_SEPARATOR . $imageBaseName)) {
+                continue;
+            }
+
+            // Convert image paths to full URLs
+            if (!preg_match('/^https?:\/\//', $rawImage)) {
+                $image['image'] = $this->getAssetUrl('assets/productimages/' . $rawImage);
+            } else {
+                $image['image'] = $rawImage;
+            }
+
+            $validImages[] = $image;
         }
         
-        return $images;
+        return $validImages;
     }
 
     /**
@@ -884,8 +905,24 @@ class ProductModel extends Model
                 if (!isset($imagesByVar[$vid])) {
                     $imagesByVar[$vid] = [];
                 }
+                // Skip stale DB records when file is missing on disk.
+                $rawImage = (string)($vi['image'] ?? '');
+                $imageBaseName = '';
+                if ($rawImage !== '') {
+                    if (preg_match('/^https?:\/\//', $rawImage)) {
+                        $parsedPath = parse_url($rawImage, PHP_URL_PATH);
+                        $imageBaseName = $parsedPath ? basename($parsedPath) : '';
+                    } else {
+                        $imageBaseName = basename($rawImage);
+                    }
+                }
+
+                if ($imageBaseName === '' || !is_file(rtrim(FCPATH, '/\\') . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'productimages' . DIRECTORY_SEPARATOR . $imageBaseName)) {
+                    continue;
+                }
+
                 // Convert image path to full URL
-                $imageUrl = $vi['image'] ?? '';
+                $imageUrl = $rawImage;
                 if (!empty($imageUrl) && !preg_match('/^https?:\/\//', $imageUrl)) {
                     $imageUrl = $this->getAssetUrl('assets/productimages/' . $imageUrl);
                 }
