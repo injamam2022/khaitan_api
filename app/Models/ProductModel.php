@@ -34,6 +34,26 @@ class ProductModel extends Model
         // Remove leading slash if present
         $path = ltrim($path, '/');
         
+        $detectAppPrefix = static function (string $currentPath): string {
+            $normalized = '/' . ltrim($currentPath, '/');
+            $normalized = preg_replace('#/+#', '/', $normalized);
+            if (!is_string($normalized)) {
+                return '';
+            }
+
+            // Preserve deployment path (e.g. /khaitan_api/public) when API is not served from domain root.
+            if (preg_match('#^(.*?/khaitan_api/public)(?:/|$)#', $normalized, $match) === 1) {
+                return rtrim($match[1], '/');
+            }
+
+            // Legacy/public proxy path fallback.
+            if (preg_match('#^(.*?/backend)(?:/|$)#', $normalized, $match) === 1) {
+                return rtrim($match[1], '/');
+            }
+
+            return '';
+        };
+        
         // Try to get base URL from current request first (most reliable)
         try {
             $request = \Config\Services::request();
@@ -47,13 +67,10 @@ class ProductModel extends Model
                 $portStr = ($port && $port != 80 && $port != 443) ? ':' . $port : '';
                 $baseURL = $scheme . '://' . $host . $portStr;
                 
-                // Check if request path includes /backend/
                 $currentPath = $uri->getPath();
-                if (strpos($currentPath, '/backend/') !== false || strpos($currentPath, '/backend') === 0) {
-                    // Ensure baseURL includes /backend/
-                    if (strpos($baseURL, '/backend') === false) {
-                        $baseURL .= '/backend';
-                    }
+                $appPrefix = $detectAppPrefix($currentPath);
+                if ($appPrefix !== '') {
+                    $baseURL .= $appPrefix;
                 }
                 
                 // Ensure trailing slash
@@ -89,14 +106,10 @@ class ProductModel extends Model
             $port = $uri->getPort();
             $portStr = ($port && $port != 80 && $port != 443) ? ':' . $port : '';
             
-            // Check if request path includes /backend/
             $currentPath = $uri->getPath();
-            $backendPath = '';
-            if (strpos($currentPath, '/backend/') !== false || strpos($currentPath, '/backend') === 0) {
-                $backendPath = '/backend';
-            }
+            $appPrefix = $detectAppPrefix($currentPath);
             
-            return $scheme . '://' . $host . $portStr . $backendPath . '/' . $path;
+            return $scheme . '://' . $host . $portStr . $appPrefix . '/' . $path;
         } catch (\Exception $e) {
             // Last resort: use default
             return 'http://localhost/backend/' . $path;
