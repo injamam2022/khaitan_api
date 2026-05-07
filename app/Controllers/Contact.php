@@ -73,7 +73,10 @@ class Contact extends BaseController
             if ($phone === '' || mb_strlen($phone) > 40) {
                 return json_error('Please provide a valid phone number.', 422);
             }
-            if (mb_strlen($message) > 4000) {
+            $messageMax = ($formSource !== null && stripos($formSource, 'bulk') !== false)
+                ? 60000
+                : 4000;
+            if (mb_strlen($message) > $messageMax) {
                 return json_error('Message is too long.', 422);
             }
 

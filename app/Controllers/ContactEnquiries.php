@@ -22,7 +22,8 @@ class ContactEnquiries extends BaseController
     }
 
     /**
-     * GET /contact-enquiries?page=1&limit=50
+     * GET /contact-enquiries?page=1&limit=50&bulk_only=1
+     * When bulk_only=1, only rows whose form_source contains "bulk order" (case-insensitive) are returned.
      */
     public function index(): ResponseInterface
     {
@@ -34,7 +35,18 @@ class ContactEnquiries extends BaseController
         }
         $limit = min(200, $limit);
 
-        $total = (int) $this->contactEnquiryModel->countAll();
+        $bulkOnly = in_array(
+            strtolower(trim((string) $this->request->getGet('bulk_only'))),
+            ['1', 'true', 'yes'],
+            true
+        );
+
+        $builder = $this->contactEnquiryModel->builder();
+        if ($bulkOnly) {
+            $builder->like('form_source', 'bulk order', 'both', null, true);
+        }
+
+        $total = (int) $builder->countAllResults(false);
         $totalPages = (int) max(1, (int) ceil($total / $limit));
 
         $page = max(1, (int) $this->request->getGet('page'));
@@ -43,9 +55,11 @@ class ContactEnquiries extends BaseController
         }
 
         $offset = ($page - 1) * $limit;
-        $rows = $this->contactEnquiryModel
+        $rows = $builder
             ->orderBy('id', 'DESC')
-            ->findAll($limit, $offset);
+            ->limit($limit, $offset)
+            ->get()
+            ->getResultArray();
 
         return json_success([
             'enquiries' => $rows,
@@ -55,20 +69,34 @@ class ContactEnquiries extends BaseController
                     'total' => (int) $total,
                     'total_pages' => $totalPages,
                 ],
+                'bulk_only' => $bulkOnly,
         ]);
     }
 
     /**
      * GET /contact-enquiries/export — CSV download (max 10,000 newest rows).
+     * Optional: bulk_only=1 to export only bulk order form submissions.
      */
     public function export(): ResponseInterface
     {
         check_auth();
 
+        $bulkOnly = in_array(
+            strtolower(trim((string) $this->request->getGet('bulk_only'))),
+            ['1', 'true', 'yes'],
+            true
+        );
+
         $maxRows = 10000;
-        $rows = $this->contactEnquiryModel
+        $builder = $this->contactEnquiryModel->builder();
+        if ($bulkOnly) {
+            $builder->like('form_source', 'bulk order', 'both', null, true);
+        }
+        $rows = $builder
             ->orderBy('id', 'DESC')
-            ->findAll($maxRows);
+            ->limit($maxRows)
+            ->get()
+            ->getResultArray();
 
         $headers = [
             'id',
@@ -118,7 +146,7 @@ class ContactEnquiries extends BaseController
         $csv = stream_get_contents($fh) ?: '';
         fclose($fh);
 
-        $filename = 'contact-enquiries-' . date('Y-m-d-His') . '.csv';
+        $filename = ($bulkOnly ? 'bulk-order-enquiries-' : 'contact-enquiries-') . date('Y-m-d-His') . '.csv';
         $body = "\xEF\xBB\xBF" . $csv;
 
         return $this->response
