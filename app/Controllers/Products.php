@@ -468,13 +468,14 @@ class Products extends BaseController
                 C.id AS category_id,
                 C.category AS category_name,
                 C.categorykey AS category_slug,
-                SC.id AS subcategory_id,
-                SC.category AS subcategory_name,
-                SC.categorykey AS subcategory_slug,
-                SC.home_static_image AS subcategory_banner_image
+                COALESCE(SC_SUB.id, SC.id) AS subcategory_id,
+                COALESCE(SC_SUB.category, SC.category) AS subcategory_name,
+                COALESCE(SC_SUB.categorykey, SC.categorykey) AS subcategory_slug,
+                COALESCE(SC_SUB.home_static_image, SC.home_static_image) AS subcategory_banner_image
             ");
 
             $builder->join('product_category AS SC', 'SC.id = P.category_id AND SC.status <> \'DELETED\'', 'left');
+            $builder->join('product_category AS SC_SUB', 'SC_SUB.id = P.subcategory_id AND SC_SUB.status <> \'DELETED\'', 'left');
             $builder->join(
                 'product_category AS C',
                 'C.id = (CASE WHEN SC.parent_id IS NULL OR SC.parent_id = 0 THEN SC.id ELSE SC.parent_id END) AND C.status <> \'DELETED\'',
@@ -487,17 +488,16 @@ class Products extends BaseController
                 $escapedSub = $this->productModel->db->escape($subcategoryKey);
                 $normalizedSub = rtrim($subcategoryKey, 's');
                 $escapedSubLike = $this->productModel->db->escapeLikeString($normalizedSub) . '%';
+                $likeSql = $this->productModel->db->escape($escapedSubLike);
                 $builder->where(
-                    "(LOWER(COALESCE(SC.categorykey, '')) = {$escapedSub}
+                    "((LOWER(COALESCE(SC.categorykey, '')) = {$escapedSub}
                       OR REPLACE(LOWER(COALESCE(SC.category, '')), ' ', '-') = {$escapedSub}
-                      OR EXISTS (
-                          SELECT 1
-                          FROM product_category CH
-                          WHERE CH.parent_id = SC.id
-                            AND CH.status <> 'DELETED'
-                            AND LOWER(COALESCE(CH.categorykey, '')) = {$escapedSub}
-                      )
-                      OR REPLACE(LOWER(COALESCE(SC.category, '')), ' ', '-') LIKE " . $this->productModel->db->escape($escapedSubLike) . " ESCAPE '!')",
+                      OR REPLACE(LOWER(COALESCE(SC.category, '')), ' ', '-') LIKE {$likeSql} ESCAPE '!')
+                     OR (COALESCE(P.subcategory_id, 0) > 0 AND (
+                      LOWER(COALESCE(SC_SUB.categorykey, '')) = {$escapedSub}
+                      OR REPLACE(LOWER(COALESCE(SC_SUB.category, '')), ' ', '-') = {$escapedSub}
+                      OR REPLACE(LOWER(COALESCE(SC_SUB.category, '')), ' ', '-') LIKE {$likeSql} ESCAPE '!'
+                     )))",
                     null,
                     false
                 );
