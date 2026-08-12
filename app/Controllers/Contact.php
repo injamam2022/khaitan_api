@@ -148,12 +148,36 @@ class Contact extends BaseController
                 return is_string($addr) && filter_var(trim($addr), FILTER_VALIDATE_EMAIL);
             }));
 
-            if ($insertId !== null && count($validRecipients) > 0) {
+            if ($insertId === null) {
+                $this->appendContactEmailLog('SKIP id=' . ($insertId ?? 'null') . ' reason=db_insert_failed');
+            } elseif (count($validRecipients) === 0) {
+                $this->appendContactEmailLog('SKIP id=' . $insertId . ' reason=no_valid_recipients raw=' . implode(',', $recipients));
+            } else {
                 $fromEmail = (string) (getenv('CONTACT_FROM_EMAIL') ?: ($_ENV['CONTACT_FROM_EMAIL'] ?? 'customercare@khaitan.com'));
                 $fromName = (string) (getenv('CONTACT_FROM_NAME') ?: ($_ENV['CONTACT_FROM_NAME'] ?? 'Khaitan Website'));
 
                 try {
                     $mail = service('email');
+                    $cfg = config('Email');
+                    $protocol = is_object($cfg) ? (string) ($cfg->protocol ?? '') : '';
+                    $smtpHost = is_object($cfg) ? (string) ($cfg->SMTPHost ?? '') : '';
+                    $smtpUser = is_object($cfg) ? (string) ($cfg->SMTPUser ?? '') : '';
+                    $smtpPort = is_object($cfg) ? (string) ($cfg->SMTPPort ?? '') : '';
+                    $smtpCrypto = is_object($cfg) ? (string) ($cfg->SMTPCrypto ?? '') : '';
+
+                    $this->appendContactEmailLog(sprintf(
+                        'ATTEMPT id=%s form=%s from=%s to=%s protocol=%s host=%s user=%s port=%s crypto=%s',
+                        (string) $insertId,
+                        substr((string) ($formSource ?? ''), 0, 80),
+                        $fromEmail,
+                        implode(',', $validRecipients),
+                        $protocol,
+                        $smtpHost !== '' ? $smtpHost : '(none)',
+                        $smtpUser !== '' ? $smtpUser : '(none)',
+                        $smtpPort !== '' ? $smtpPort : '(none)',
+                        $smtpCrypto !== '' ? $smtpCrypto : '(none)'
+                    ));
+
                     $mail->clear();
                     $mail->setMailType('text');
                     $mail->setFrom($fromEmail, $fromName);
@@ -165,11 +189,13 @@ class Contact extends BaseController
                         $emailSent = true;
                         $model = new ContactEnquiryModel();
                         $model->update((int) $insertId, ['email_sent' => 1]);
+                        $this->appendContactEmailLog('SUCCESS id=' . $insertId . ' to=' . implode(',', $validRecipients));
                     } else {
-                        log_message('error', 'Contact::submit email send failed — ' . $mail->printDebugger([], true));
+                        $debug = $mail->printDebugger(['headers', 'subject', 'body']);
+                        $this->appendContactEmailLog('FAIL id=' . $insertId . ' debug=' . $this->flattenLogText($debug));
                     }
                 } catch (\Throwable $e) {
-                    log_message('error', 'Contact::submit email exception: ' . $e->getMessage());
+                    $this->appendContactEmailLog('EXCEPTION id=' . $insertId . ' msg=' . $e->getMessage());
                 }
             }
 
@@ -235,5 +261,25 @@ class Contact extends BaseController
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Always-on file log for contact notification mail (works even when production log threshold hides info).
+     */
+    private function appendContactEmailLog(string $message): void
+    {
+        $line = date('c') . ' | ' . $this->flattenLogText($message) . PHP_EOL;
+        $logDir = WRITEPATH . 'logs' . DIRECTORY_SEPARATOR;
+        if (is_dir($logDir) && is_writable($logDir)) {
+            @file_put_contents($logDir . 'contact_email.log', $line, FILE_APPEND | LOCK_EX);
+        }
+        // Also mirror into daily CI log at error level so production threshold (4) still captures it.
+        log_message('error', 'ContactEmail | ' . $this->flattenLogText($message));
+    }
+
+    private function flattenLogText(string $text): string
+    {
+        $flat = preg_replace('/\s+/', ' ', $text);
+        return is_string($flat) ? trim($flat) : trim($text);
     }
 }
