@@ -4,6 +4,14 @@ namespace Config;
 
 use CodeIgniter\Config\BaseConfig;
 
+/**
+ * Mail transport for contact notifications and other outbound mail.
+ * Prefer SMTP (Zoho) via .env — PHP mail() is unreliable on most hosts.
+ *
+ * Set in khaitan_api/.env:
+ *   email.protocol, email.SMTPHost, email.SMTPUser, email.SMTPPass,
+ *   email.SMTPPort, email.SMTPCrypto
+ */
 class Email extends BaseConfig
 {
     public string $fromEmail  = '';
@@ -43,12 +51,12 @@ class Email extends BaseConfig
     /**
      * SMTP Port
      */
-    public int $SMTPPort = 25;
+    public int $SMTPPort = 587;
 
     /**
      * SMTP Timeout (in seconds)
      */
-    public int $SMTPTimeout = 5;
+    public int $SMTPTimeout = 15;
 
     /**
      * Enable persistent SMTP connections
@@ -56,11 +64,9 @@ class Email extends BaseConfig
     public bool $SMTPKeepAlive = false;
 
     /**
-     * SMTP Encryption.
+     * SMTP Encryption: '', 'tls' (port 587) or 'ssl' (port 465).
      *
-     * @var string '', 'tls' or 'ssl'. 'tls' will issue a STARTTLS command
-     *             to the server. 'ssl' means implicit SSL. Connection on port
-     *             465 should set this to ''.
+     * @var string
      */
     public string $SMTPCrypto = 'tls';
 
@@ -118,4 +124,66 @@ class Email extends BaseConfig
      * Enable notify message from server
      */
     public bool $DSN = false;
+
+    public function __construct()
+    {
+        parent::__construct();
+
+        $protocol = $this->readEnv(['email.protocol', 'EMAIL_PROTOCOL']);
+        if ($protocol !== '') {
+            $this->protocol = strtolower($protocol);
+        }
+
+        $host = $this->readEnv(['email.SMTPHost', 'email.smtpHost', 'EMAIL_SMTP_HOST']);
+        if ($host !== '') {
+            $this->SMTPHost = $host;
+        }
+
+        $user = $this->readEnv(['email.SMTPUser', 'email.smtpUser', 'EMAIL_SMTP_USER']);
+        if ($user !== '') {
+            $this->SMTPUser = $user;
+        }
+
+        $pass = $this->readEnv(['email.SMTPPass', 'email.smtpPass', 'EMAIL_SMTP_PASS']);
+        if ($pass !== '') {
+            $this->SMTPPass = $pass;
+        }
+
+        $port = $this->readEnv(['email.SMTPPort', 'email.smtpPort', 'EMAIL_SMTP_PORT']);
+        if ($port !== '' && ctype_digit($port)) {
+            $this->SMTPPort = (int) $port;
+        }
+
+        $crypto = $this->readEnv(['email.SMTPCrypto', 'email.smtpCrypto', 'EMAIL_SMTP_CRYPTO']);
+        if ($crypto !== '') {
+            $this->SMTPCrypto = strtolower($crypto);
+        }
+
+        // If SMTP host + user are set, force smtp even if protocol was left blank.
+        if ($this->SMTPHost !== '' && $this->SMTPUser !== '' && $this->protocol === 'mail') {
+            $this->protocol = 'smtp';
+        }
+    }
+
+    /**
+     * @param list<string> $keys
+     */
+    private function readEnv(array $keys): string
+    {
+        foreach ($keys as $key) {
+            $val = env($key, '');
+            if (is_string($val) && trim($val) !== '') {
+                return trim($val);
+            }
+            $fromGetenv = getenv($key);
+            if (is_string($fromGetenv) && trim($fromGetenv) !== '') {
+                return trim($fromGetenv);
+            }
+            if (isset($_ENV[$key]) && is_string($_ENV[$key]) && trim($_ENV[$key]) !== '') {
+                return trim($_ENV[$key]);
+            }
+        }
+
+        return '';
+    }
 }
