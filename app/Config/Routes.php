@@ -22,6 +22,9 @@ $routes->group('api', ['namespace' => 'App\Controllers'], function($routes) {
     $routes->match(['POST', 'OPTIONS'], 'products/filter/v2', 'Products::filterV2');
     // Public contact form (was external form-api PHP scripts)
     $routes->match(['POST', 'OPTIONS'], 'contact/submit', 'Contact::submit');
+    // Public careers
+    $routes->match(['GET', 'OPTIONS'], 'careers/openings', 'Careers::openings');
+    $routes->match(['POST', 'OPTIONS'], 'careers/apply', 'Careers::apply');
 });
 
 // Dashboard Routes
@@ -197,6 +200,17 @@ $routes->GET('cron/easyecom-retry', 'Cron\EasyEcomRetry::index');
 $routes->GET('contact-enquiries', 'ContactEnquiries::index');
 $routes->match(['GET', 'OPTIONS'], 'contact-enquiries/export', 'ContactEnquiries::export');
 $routes->match(['POST', 'OPTIONS'], 'contact-enquiries/delete', 'ContactEnquiries::bulkDelete');
+
+// Job openings (admin CRUD; session auth via check_auth)
+$routes->GET('job-openings', 'JobOpenings::index');
+$routes->match(['POST', 'OPTIONS'], 'job-openings/add', 'JobOpenings::add');
+$routes->match(['POST', 'OPTIONS'], 'job-openings/edit/(:num)', 'JobOpenings::edit/$1');
+$routes->match(['POST', 'OPTIONS'], 'job-openings/delete/(:num)', 'JobOpenings::delete/$1');
+
+// Job applications (admin list/delete/resume; session auth via check_auth)
+$routes->GET('job-applications', 'JobApplications::index');
+$routes->match(['GET', 'OPTIONS'], 'job-applications/resume/(:num)', 'JobApplications::resume/$1');
+$routes->match(['POST', 'OPTIONS'], 'job-applications/delete', 'JobApplications::bulkDelete');
 
 // Health Check Routes (Production Safe)
 $routes->GET('health', 'Health::index');
