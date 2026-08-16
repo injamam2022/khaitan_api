@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Models\ProductModel;
 use App\Libraries\EasyEcomSyncService;
+use App\Libraries\CategorySeoColumns;
 use CodeIgniter\API\ResponseTrait;
 use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\ResponseInterface;
@@ -65,6 +66,66 @@ class Products extends BaseController
         }
 
         return $category;
+    }
+
+    /**
+     * @return array{meta_title: ?string, meta_description: ?string, meta_keywords: ?string}
+     */
+    private function categorySeoFromRequest(): array
+    {
+        $title = trim((string) $this->request->getPost('meta_title'));
+        $description = trim((string) $this->request->getPost('meta_description'));
+        $keywords = trim((string) $this->request->getPost('meta_keywords'));
+
+        return [
+            'meta_title' => $title === '' ? null : mb_substr($title, 0, 255),
+            'meta_description' => $description === '' ? null : mb_substr($description, 0, 512),
+            'meta_keywords' => $keywords === '' ? null : mb_substr($keywords, 0, 512),
+        ];
+    }
+
+    /**
+     * Public SEO payload for a category or subcategory slug.
+     * GET /api/products/category-seo/{slug}
+     */
+    public function categorySeo(string $slug = ''): ResponseInterface
+    {
+        try {
+            CategorySeoColumns::ensure();
+            $slug = strtolower(trim($slug));
+            if ($slug === '') {
+                return json_error('Category slug is required', 400);
+            }
+
+            $escaped = $this->productModel->db->escape($slug);
+            $row = $this->productModel->db->table('product_category')
+                ->where('status <>', 'DELETED')
+                ->groupStart()
+                    ->where('categorykey', $slug)
+                    ->orWhere("LOWER(COALESCE(categorykey, '')) = {$escaped}", null, false)
+                    ->orWhere("REPLACE(LOWER(COALESCE(category, '')), ' ', '-') = {$escaped}", null, false)
+                ->groupEnd()
+                ->orderBy('id', 'ASC')
+                ->get()
+                ->getRowArray();
+
+            if (empty($row)) {
+                return json_error('Category not found', 404);
+            }
+
+            return json_success([
+                'id' => (int) $row['id'],
+                'name' => $row['category'] ?? '',
+                'slug' => $row['categorykey'] ?? $slug,
+                'parent_id' => !empty($row['parent_id']) ? (int) $row['parent_id'] : null,
+                'meta_title' => $row['meta_title'] ?? null,
+                'meta_description' => $row['meta_description'] ?? null,
+                'meta_keywords' => $row['meta_keywords'] ?? null,
+            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'Products::categorySeo: ' . $e->getMessage());
+            return json_error('Failed to fetch category SEO', 500);
+        }
     }
 
     /**
@@ -482,6 +543,7 @@ class Products extends BaseController
     public function filterV2()
     {
         try {
+            CategorySeoColumns::ensure();
             $payload = $this->requestJsonPayload();
 
             $filters = isset($payload['filters']) && is_array($payload['filters']) ? $payload['filters'] : [];
@@ -649,6 +711,9 @@ class Products extends BaseController
                         'slug' => $categoryRow['categorykey'] ?? $metaKey,
                         'banner_image' => $categoryRow['home_static_image'] ?? null,
                         'product_count' => $total,
+                        'meta_title' => $categoryRow['meta_title'] ?? null,
+                        'meta_description' => $categoryRow['meta_description'] ?? null,
+                        'meta_keywords' => $categoryRow['meta_keywords'] ?? null,
                         'parent' => $parentRow ? [
                             'id' => (int)$parentRow['id'],
                             'name' => $parentRow['category'] ?? null,
@@ -678,7 +743,8 @@ class Products extends BaseController
     public function cat()
     {
         try {
-            $cat_list = $this->productModel->getProductCategoryList('ACTIVE');
+            CategorySeoColumns::ensure();
+            $cat_list = $this->productModel->getProductCategoryList(null);
             if (is_array($cat_list)) {
                 $cat_list = array_map(function ($category) {
                     return $this->sanitizeCategoryImages($category);
@@ -1150,6 +1216,7 @@ class Products extends BaseController
     {
         // Handle POST (create) - Using CI4 recommended method
         if ($this->request->is('post')) {
+            CategorySeoColumns::ensure();
             $category = $this->request->getPost('category');
             $parent_id = $this->request->getPost('parent_id');
 
@@ -1233,7 +1300,7 @@ class Products extends BaseController
                 'created_id' => $created_id,
                 'created_on' => $created_on,
                 'status' => $status
-            ];
+            ] + $this->categorySeoFromRequest();
 
             // Add parent_id if provided
             if ($parent_id !== null) {
@@ -1278,6 +1345,9 @@ class Products extends BaseController
                 'image' => '',
                 'bannerImage' => '',
                 'parent_id' => null,
+                'meta_title' => '',
+                'meta_description' => '',
+                'meta_keywords' => '',
             ];
             return json_success(['reset' => $reset], 'Add category form defaults');
         }
@@ -1293,6 +1363,7 @@ class Products extends BaseController
 
         // Handle POST (update) - Using CI4 recommended method
         if ($this->request->is('post')) {
+            CategorySeoColumns::ensure();
             $category = $this->request->getPost('category');
             $status = $this->request->getPost('status') ?: 'INACTIVE';
             $parent_id = $this->request->getPost('parent_id');
@@ -1355,7 +1426,7 @@ class Products extends BaseController
                 'categorykey' => $categorykey,
                 'status' => $status,
                 'parent_id' => $parent_id
-            ];
+            ] + $this->categorySeoFromRequest();
 
             if (!empty($logo_status)) {
                 $normalizedLogoStatus = strtoupper(trim((string)$logo_status));
@@ -1438,6 +1509,7 @@ class Products extends BaseController
             return json_success(null, 'Category has been updated successfully');
         } else {
             // Handle GET (retrieve)
+            CategorySeoColumns::ensure();
             $cat_details = $this->productModel->getproductCategoryDetails($catId);
             
             if ($cat_details) {

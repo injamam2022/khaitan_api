@@ -83,7 +83,7 @@ class Filters extends BaseFilters
         'before' => [
             // CORS is in $required so OPTIONS preflight always gets headers.
             'sessioncookie', // Must run for ALL routes (including login) for cross-domain cookie support
-            'sessionauth' => ['except' => ['login', 'logout', 'health', 'test', 'webhooks/easyecom', 'webhooks/easyecom/*', 'orders/push-easyecom', 'orders/cancel-easyecom', 'cron/*', 'api/products/filter/v2', 'api/products/lists/v2', 'api/products/slug/*', 'api/home/banners/v2', 'api/contact/submit', 'api/careers/openings', 'api/careers/apply']], // Skip for public, webhook, and internal push
+            'sessionauth' => ['except' => ['login', 'logout', 'health', 'test', 'webhooks/easyecom', 'webhooks/easyecom/*', 'orders/push-easyecom', 'orders/cancel-easyecom', 'cron/*', 'api/products/filter/v2', 'api/products/lists/v2', 'api/products/slug/*', 'api/products/category-seo/*', 'api/home/banners/v2', 'api/contact/submit', 'api/careers/openings', 'api/careers/apply']], // Skip for public, webhook, and internal push
             // 'honeypot',
             // 'csrf',
             // 'invalidchars',
