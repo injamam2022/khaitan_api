@@ -50,6 +50,7 @@ class HomeproductModel extends Model
     public function getProductList($catId)
     {
         $builder = $this->db->table('products');
+        $builder->where('status', 'ACTIVE');
         $builder->where('home_display_status', 'YES');
         $builder->where('category_id', (int)$catId);
         $builder->orderBy('home_display_order', 'ASC');

@@ -309,7 +309,7 @@ class Products extends BaseController
                 'C.id = (CASE WHEN SC.parent_id IS NULL OR SC.parent_id = 0 THEN SC.id ELSE SC.parent_id END) AND C.status <> \'DELETED\'',
                 'left'
             );
-            $builder->where('P.status <>', 'DELETED');
+            $builder->where('P.status', 'ACTIVE');
             $builder->where("{$priceExpr} >", 0, false);
 
             if ($searchTerms !== '') {
@@ -387,7 +387,7 @@ class Products extends BaseController
             $row = $this->productModel->db->table('products')
                 ->select('id')
                 ->where('slug', $slug)
-                ->where('status <>', 'DELETED')
+                ->where('status', 'ACTIVE')
                 ->get()
                 ->getRowArray();
 
@@ -542,7 +542,7 @@ class Products extends BaseController
                 'C.id = (CASE WHEN SC.parent_id IS NULL OR SC.parent_id = 0 THEN SC.id ELSE SC.parent_id END) AND C.status <> \'DELETED\'',
                 'left'
             );
-            $builder->where('P.status <>', 'DELETED');
+            $builder->where('P.status', 'ACTIVE');
             $builder->where("{$priceExpr} >", 0, false);
 
             if ($subcategoryKey !== '') {
