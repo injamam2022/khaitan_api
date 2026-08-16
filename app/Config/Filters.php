@@ -61,6 +61,7 @@ class Filters extends BaseFilters
         'before' => [
             'forcehttps', // Force Global Secure Requests
             'pagecache',  // Web Page Caching
+            'cors',       // Must run for OPTIONS preflight even when routing is incomplete
         ],
         'after' => [
             'pagecache',   // Web Page Caching
@@ -80,8 +81,7 @@ class Filters extends BaseFilters
      */
     public array $globals = [
         'before' => [
-            // CORS via PHP ensures headers when OPTIONS preflight reaches CI (Apache may omit them on shared hosting)
-            'cors',
+            // CORS is in $required so OPTIONS preflight always gets headers.
             'sessioncookie', // Must run for ALL routes (including login) for cross-domain cookie support
             'sessionauth' => ['except' => ['login', 'logout', 'health', 'test', 'webhooks/easyecom', 'webhooks/easyecom/*', 'orders/push-easyecom', 'orders/cancel-easyecom', 'cron/*', 'api/products/filter/v2', 'api/products/lists/v2', 'api/products/slug/*', 'api/home/banners/v2', 'api/contact/submit']], // Skip for public, webhook, and internal push
             // 'honeypot',

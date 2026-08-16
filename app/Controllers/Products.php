@@ -29,6 +29,27 @@ class Products extends BaseController
     }
 
     /**
+     * Read JSON body without throwing on empty OPTIONS/preflight requests.
+     *
+     * @return array<string, mixed>
+     */
+    private function requestJsonPayload(): array
+    {
+        $raw = trim((string) $this->request->getBody());
+        if ($raw === '') {
+            return [];
+        }
+
+        try {
+            $decoded = $this->request->getJSON(true);
+            return is_array($decoded) ? $decoded : [];
+        } catch (\Throwable $e) {
+            $decoded = json_decode($raw, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+    }
+
+    /**
      * Apply image soft-delete flags for category records.
      */
     private function sanitizeCategoryImages(array $category): array
@@ -237,10 +258,7 @@ class Products extends BaseController
     public function listsV2()
     {
         try {
-            $payload = $this->request->getJSON(true);
-            if (!is_array($payload)) {
-                $payload = [];
-            }
+            $payload = $this->requestJsonPayload();
 
             $page = max(1, (int)($payload['page'] ?? 1));
             $limitRaw = (int)($payload['limit'] ?? 20);
@@ -257,7 +275,18 @@ class Products extends BaseController
                 P.id,
                 P.product_name,
                 P.slug,
-                P.short_description,
+                COALESCE(
+                    NULLIF(TRIM((
+                        SELECT PD.content
+                        FROM product_descriptions PD
+                        WHERE PD.product_id = CAST(P.id AS UNSIGNED)
+                          AND PD.description_type = 'short'
+                          AND PD.status <> 'DELETED'
+                        ORDER BY PD.id ASC
+                        LIMIT 1
+                    )), ''),
+                    P.short_description
+                ) AS short_description,
                 {$priceExpr} AS min_price,
                 (SELECT PI.image
                  FROM product_image AS PI
@@ -268,12 +297,13 @@ class Products extends BaseController
                 C.id AS category_id,
                 C.category AS category_name,
                 C.categorykey AS category_slug,
-                SC.id AS subcategory_id,
-                SC.category AS subcategory_name,
-                SC.categorykey AS subcategory_slug,
-                SC.home_static_image AS subcategory_banner_image
+                COALESCE(SC_SUB.id, CASE WHEN SC.parent_id IS NOT NULL AND SC.parent_id <> 0 THEN SC.id ELSE NULL END) AS subcategory_id,
+                COALESCE(SC_SUB.category, CASE WHEN SC.parent_id IS NOT NULL AND SC.parent_id <> 0 THEN SC.category ELSE NULL END) AS subcategory_name,
+                COALESCE(SC_SUB.categorykey, CASE WHEN SC.parent_id IS NOT NULL AND SC.parent_id <> 0 THEN SC.categorykey ELSE NULL END) AS subcategory_slug,
+                COALESCE(SC_SUB.home_static_image, CASE WHEN SC.parent_id IS NOT NULL AND SC.parent_id <> 0 THEN SC.home_static_image ELSE NULL END) AS subcategory_banner_image
             ");
             $builder->join('product_category AS SC', 'SC.id = P.category_id AND SC.status <> \'DELETED\'', 'left');
+            $builder->join('product_category AS SC_SUB', 'SC_SUB.id = P.subcategory_id AND SC_SUB.status <> \'DELETED\'', 'left');
             $builder->join(
                 'product_category AS C',
                 'C.id = (CASE WHEN SC.parent_id IS NULL OR SC.parent_id = 0 THEN SC.id ELSE SC.parent_id END) AND C.status <> \'DELETED\'',
@@ -390,13 +420,36 @@ class Products extends BaseController
                     if (!is_array($option)) {
                         continue;
                     }
-                    if (($option['stock']['available'] ?? false) === true) {
+                    $inStock = ($option['in_stock'] ?? '') === 'YES'
+                        || (($option['stock']['available'] ?? false) === true)
+                        || ((int)($option['stock_quantity'] ?? 0) > 0);
+                    if ($inStock) {
                         $selectedVariation = $option;
                         break;
                     }
                 }
                 if ($selectedVariation === null) {
                     $selectedVariation = $variations[0]['options'][0] ?? null;
+                }
+            }
+
+            if (is_array($productDetails) && is_array($descriptions)) {
+                $contentByType = [];
+                foreach ($descriptions as $descriptionRow) {
+                    if (!is_array($descriptionRow)) {
+                        continue;
+                    }
+                    $type = strtolower(trim((string)($descriptionRow['description_type'] ?? '')));
+                    $content = trim((string)($descriptionRow['content'] ?? ''));
+                    if ($type !== '' && $content !== '' && !isset($contentByType[$type])) {
+                        $contentByType[$type] = $content;
+                    }
+                }
+                if (trim((string)($productDetails['product_description'] ?? '')) === '' && !empty($contentByType['long'])) {
+                    $productDetails['product_description'] = $contentByType['long'];
+                }
+                if (trim((string)($productDetails['short_description'] ?? '')) === '' && !empty($contentByType['short'])) {
+                    $productDetails['short_description'] = $contentByType['short'];
                 }
             }
 
@@ -429,10 +482,7 @@ class Products extends BaseController
     public function filterV2()
     {
         try {
-            $payload = $this->request->getJSON(true);
-            if (!is_array($payload)) {
-                $payload = [];
-            }
+            $payload = $this->requestJsonPayload();
 
             $filters = isset($payload['filters']) && is_array($payload['filters']) ? $payload['filters'] : [];
 
@@ -457,7 +507,18 @@ class Products extends BaseController
                 P.id,
                 P.product_name,
                 P.slug,
-                P.short_description,
+                COALESCE(
+                    NULLIF(TRIM((
+                        SELECT PD.content
+                        FROM product_descriptions PD
+                        WHERE PD.product_id = CAST(P.id AS UNSIGNED)
+                          AND PD.description_type = 'short'
+                          AND PD.status <> 'DELETED'
+                        ORDER BY PD.id ASC
+                        LIMIT 1
+                    )), ''),
+                    P.short_description
+                ) AS short_description,
                 {$priceExpr} AS min_price,
                 (SELECT PI.image
                  FROM product_image AS PI
@@ -468,10 +529,10 @@ class Products extends BaseController
                 C.id AS category_id,
                 C.category AS category_name,
                 C.categorykey AS category_slug,
-                COALESCE(SC_SUB.id, SC.id) AS subcategory_id,
-                COALESCE(SC_SUB.category, SC.category) AS subcategory_name,
-                COALESCE(SC_SUB.categorykey, SC.categorykey) AS subcategory_slug,
-                COALESCE(SC_SUB.home_static_image, SC.home_static_image) AS subcategory_banner_image
+                COALESCE(SC_SUB.id, CASE WHEN SC.parent_id IS NOT NULL AND SC.parent_id <> 0 THEN SC.id ELSE NULL END) AS subcategory_id,
+                COALESCE(SC_SUB.category, CASE WHEN SC.parent_id IS NOT NULL AND SC.parent_id <> 0 THEN SC.category ELSE NULL END) AS subcategory_name,
+                COALESCE(SC_SUB.categorykey, CASE WHEN SC.parent_id IS NOT NULL AND SC.parent_id <> 0 THEN SC.categorykey ELSE NULL END) AS subcategory_slug,
+                COALESCE(SC_SUB.home_static_image, CASE WHEN SC.parent_id IS NOT NULL AND SC.parent_id <> 0 THEN SC.home_static_image ELSE NULL END) AS subcategory_banner_image
             ");
 
             $builder->join('product_category AS SC', 'SC.id = P.category_id AND SC.status <> \'DELETED\'', 'left');
@@ -486,18 +547,17 @@ class Products extends BaseController
 
             if ($subcategoryKey !== '') {
                 $escapedSub = $this->productModel->db->escape($subcategoryKey);
-                $normalizedSub = rtrim($subcategoryKey, 's');
-                $escapedSubLike = $this->productModel->db->escapeLikeString($normalizedSub) . '%';
-                $likeSql = $this->productModel->db->escape($escapedSubLike);
                 $builder->where(
-                    "((LOWER(COALESCE(SC.categorykey, '')) = {$escapedSub}
-                      OR REPLACE(LOWER(COALESCE(SC.category, '')), ' ', '-') = {$escapedSub}
-                      OR REPLACE(LOWER(COALESCE(SC.category, '')), ' ', '-') LIKE {$likeSql} ESCAPE '!')
-                     OR (COALESCE(P.subcategory_id, 0) > 0 AND (
-                      LOWER(COALESCE(SC_SUB.categorykey, '')) = {$escapedSub}
+                    "(LOWER(COALESCE(SC_SUB.categorykey, '')) = {$escapedSub}
                       OR REPLACE(LOWER(COALESCE(SC_SUB.category, '')), ' ', '-') = {$escapedSub}
-                      OR REPLACE(LOWER(COALESCE(SC_SUB.category, '')), ' ', '-') LIKE {$likeSql} ESCAPE '!'
-                     )))",
+                      OR (
+                        (P.subcategory_id IS NULL OR P.subcategory_id = 0)
+                        AND SC.parent_id IS NOT NULL AND SC.parent_id <> 0
+                        AND (
+                          LOWER(COALESCE(SC.categorykey, '')) = {$escapedSub}
+                          OR REPLACE(LOWER(COALESCE(SC.category, '')), ' ', '-') = {$escapedSub}
+                        )
+                      ))",
                     null,
                     false
                 );
@@ -505,12 +565,9 @@ class Products extends BaseController
 
             if ($categoryKey !== '') {
                 $escapedCat = $this->productModel->db->escape($categoryKey);
-                $normalizedCat = rtrim($categoryKey, 's');
-                $escapedCatLike = $this->productModel->db->escapeLikeString($normalizedCat) . '%';
                 $builder->where(
                     "(LOWER(COALESCE(C.categorykey, '')) = {$escapedCat}
-                      OR REPLACE(LOWER(COALESCE(C.category, '')), ' ', '-') = {$escapedCat}
-                      OR REPLACE(LOWER(COALESCE(C.category, '')), ' ', '-') LIKE " . $this->productModel->db->escape($escapedCatLike) . " ESCAPE '!')",
+                      OR REPLACE(LOWER(COALESCE(C.category, '')), ' ', '-') = {$escapedCat})",
                     null,
                     false
                 );
@@ -567,8 +624,43 @@ class Products extends BaseController
                 ];
             }, $rows);
 
+            $collectionMeta = null;
+            $metaKey = $subcategoryKey !== '' ? $subcategoryKey : $categoryKey;
+            if ($metaKey !== '') {
+                $categoryRow = $this->productModel->db->table('product_category')
+                    ->where('status <>', 'DELETED')
+                    ->groupStart()
+                        ->where('categorykey', $metaKey)
+                        ->orWhere("REPLACE(LOWER(category), ' ', '-') = " . $this->productModel->db->escape($metaKey), null, false)
+                    ->groupEnd()
+                    ->get()
+                    ->getRowArray();
+                if (!empty($categoryRow)) {
+                    $parentRow = null;
+                    if (!empty($categoryRow['parent_id'])) {
+                        $parentRow = $this->productModel->db->table('product_category')
+                            ->where('id', (int)$categoryRow['parent_id'])
+                            ->get()
+                            ->getRowArray();
+                    }
+                    $collectionMeta = [
+                        'id' => (int)$categoryRow['id'],
+                        'name' => $categoryRow['category'] ?? null,
+                        'slug' => $categoryRow['categorykey'] ?? $metaKey,
+                        'banner_image' => $categoryRow['home_static_image'] ?? null,
+                        'product_count' => $total,
+                        'parent' => $parentRow ? [
+                            'id' => (int)$parentRow['id'],
+                            'name' => $parentRow['category'] ?? null,
+                            'slug' => $parentRow['categorykey'] ?? null,
+                        ] : null,
+                    ];
+                }
+            }
+
             return json_success([
                 'products' => $products,
+                'collection_meta' => $collectionMeta,
                 'pagination' => [
                     'page' => $page,
                     'limit' => $limit,

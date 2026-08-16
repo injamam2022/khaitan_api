@@ -37,7 +37,7 @@ class Cors extends BaseConfig
         'allowedOrigins' => [], // Will be set dynamically in constructor
         'allowedOriginsPatterns' => [],
         'supportsCredentials' => true, // REQUIRED for session cookies
-        'allowedHeaders' => ['Content-Type', 'Authorization', 'Access-Token', 'X-Requested-With', 'Accept', 'Origin'],
+        'allowedHeaders' => ['Content-Type', 'Authorization', 'Access-Token', 'X-Requested-With', 'Accept', 'Origin', 'session_key'],
         'exposedHeaders' => ['Content-Length', 'Content-Type'],
         'allowedMethods' => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
         'maxAge' => 86400, // 24 hours
@@ -49,5 +49,12 @@ class Cors extends BaseConfig
         
         // Set allowed origins dynamically based on environment
         $this->default['allowedOrigins'] = $this->getAllowedOrigins();
+
+        if (ENVIRONMENT !== 'production') {
+            $this->default['allowedOriginsPatterns'] = [
+                'https?://localhost(:[0-9]+)?',
+                'https?://127\\.0\\.0\\.1(:[0-9]+)?',
+            ];
+        }
     }
 }

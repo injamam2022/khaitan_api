@@ -840,18 +840,6 @@ class ProductModel extends Model
                 continue;
             }
 
-            $imageBaseName = '';
-            if (preg_match('/^https?:\/\//', $rawImage)) {
-                $parsedPath = parse_url($rawImage, PHP_URL_PATH);
-                $imageBaseName = $parsedPath ? basename($parsedPath) : '';
-            } else {
-                $imageBaseName = basename($rawImage);
-            }
-
-            if ($imageBaseName === '' || !is_file(rtrim(FCPATH, '/\\') . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'productimages' . DIRECTORY_SEPARATOR . $imageBaseName)) {
-                continue;
-            }
-
             // Convert image paths to full URLs
             if (!preg_match('/^https?:\/\//', $rawImage)) {
                 if (strpos($rawImage, 'assets/') === 0) {
@@ -935,19 +923,8 @@ class ProductModel extends Model
                 if (!isset($imagesByVar[$vid])) {
                     $imagesByVar[$vid] = [];
                 }
-                // Skip stale DB records when file is missing on disk.
                 $rawImage = (string)($vi['image'] ?? '');
-                $imageBaseName = '';
-                if ($rawImage !== '') {
-                    if (preg_match('/^https?:\/\//', $rawImage)) {
-                        $parsedPath = parse_url($rawImage, PHP_URL_PATH);
-                        $imageBaseName = $parsedPath ? basename($parsedPath) : '';
-                    } else {
-                        $imageBaseName = basename($rawImage);
-                    }
-                }
-
-                if ($imageBaseName === '' || !is_file(rtrim(FCPATH, '/\\') . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'productimages' . DIRECTORY_SEPARATOR . $imageBaseName)) {
+                if ($rawImage === '') {
                     continue;
                 }
 
