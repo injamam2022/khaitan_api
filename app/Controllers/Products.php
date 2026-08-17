@@ -85,6 +85,67 @@ class Products extends BaseController
     }
 
     /**
+     * Look up a non-deleted category/subcategory by slug or name.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function findCategoryRowBySlug(string $slug, bool $topLevelOnly = false): ?array
+    {
+        $slug = strtolower(trim($slug));
+        if ($slug === '') {
+            return null;
+        }
+
+        $escaped = $this->productModel->db->escape($slug);
+        $builder = $this->productModel->db->table('product_category')
+            ->where('status <>', 'DELETED')
+            ->groupStart()
+                ->where('categorykey', $slug)
+                ->orWhere("LOWER(COALESCE(categorykey, '')) = {$escaped}", null, false)
+                ->orWhere("REPLACE(LOWER(COALESCE(category, '')), ' ', '-') = {$escaped}", null, false)
+            ->groupEnd();
+
+        if ($topLevelOnly) {
+            $builder->groupStart()
+                ->where('parent_id IS NULL')
+                ->orWhere('parent_id', 0)
+            ->groupEnd();
+        }
+
+        $row = $builder->orderBy('id', 'ASC')->get()->getRowArray();
+        return is_array($row) ? $row : null;
+    }
+
+    private function publicCategoryAssetUrl(?string $value, string $folder): ?string
+    {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return null;
+        }
+        if (preg_match('#^https?://#i', $value)) {
+            $cleaned = preg_replace('#/index\\.php#', '', $value);
+            return is_string($cleaned) ? $cleaned : $value;
+        }
+        return base_url('assets/' . $folder . '/' . ltrim($value, '/'));
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array{id:int,name:string,slug:string,logo:?string,banner_image:?string}
+     */
+    private function publicCategoryNode(array $row): array
+    {
+        $row = $this->sanitizeCategoryImages($row);
+        return [
+            'id' => (int) ($row['id'] ?? 0),
+            'name' => (string) ($row['category'] ?? ''),
+            'slug' => (string) ($row['categorykey'] ?? ''),
+            'logo' => $this->publicCategoryAssetUrl($row['logo'] ?? null, 'category_logos'),
+            'banner_image' => $this->publicCategoryAssetUrl($row['home_static_image'] ?? null, 'category_images'),
+        ];
+    }
+
+    /**
      * Public SEO payload for a category or subcategory slug.
      * GET /api/products/category-seo/{slug}
      */
@@ -97,18 +158,7 @@ class Products extends BaseController
                 return json_error('Category slug is required', 400);
             }
 
-            $escaped = $this->productModel->db->escape($slug);
-            $row = $this->productModel->db->table('product_category')
-                ->where('status <>', 'DELETED')
-                ->groupStart()
-                    ->where('categorykey', $slug)
-                    ->orWhere("LOWER(COALESCE(categorykey, '')) = {$escaped}", null, false)
-                    ->orWhere("REPLACE(LOWER(COALESCE(category, '')), ' ', '-') = {$escaped}", null, false)
-                ->groupEnd()
-                ->orderBy('id', 'ASC')
-                ->get()
-                ->getRowArray();
-
+            $row = $this->findCategoryRowBySlug($slug);
             if (empty($row)) {
                 return json_error('Category not found', 404);
             }
@@ -125,6 +175,75 @@ class Products extends BaseController
         } catch (\Throwable $e) {
             log_message('error', 'Products::categorySeo: ' . $e->getMessage());
             return json_error('Failed to fetch category SEO', 500);
+        }
+    }
+
+    /**
+     * Public category tree for storefront landing pages and header nav.
+     * GET /api/products/category-tree
+     */
+    public function categoryTree(): ResponseInterface
+    {
+        try {
+            $parents = $this->productModel->getProductCategoryListTopLevel('ACTIVE');
+            $tree = [];
+            foreach ($parents as $parent) {
+                $node = $this->publicCategoryNode($parent);
+                $children = $this->productModel->getProductSubcategoryList((int) $parent['id'], 'ACTIVE');
+                $node['subcategories'] = array_map(function ($child) {
+                    return $this->publicCategoryNode($child);
+                }, is_array($children) ? $children : []);
+                $tree[] = $node;
+            }
+
+            return json_success($tree);
+        } catch (\Throwable $e) {
+            log_message('error', 'Products::categoryTree: ' . $e->getMessage());
+            return json_error('Failed to fetch category tree', 500);
+        }
+    }
+
+    /**
+     * Public ACTIVE subcategories for a parent category slug (e.g. geysers).
+     * GET /api/products/subcategories/{parentSlug}
+     */
+    public function subcategoriesByParentSlug(string $slug = ''): ResponseInterface
+    {
+        try {
+            $slug = strtolower(trim($slug));
+            if ($slug === '') {
+                return json_error('Category slug is required', 400);
+            }
+
+            $parent = $this->findCategoryRowBySlug($slug, true);
+            if (empty($parent)) {
+                $parent = $this->findCategoryRowBySlug($slug, false);
+            }
+            if (empty($parent)) {
+                return json_error('Category not found', 404);
+            }
+
+            $parentId = (int) ($parent['id'] ?? 0);
+            if (!empty($parent['parent_id']) && (int) $parent['parent_id'] > 0) {
+                $parentId = (int) $parent['parent_id'];
+                $resolved = $this->productModel->getproductCategoryDetails($parentId);
+                if (!empty($resolved[0])) {
+                    $parent = $resolved[0];
+                }
+            }
+
+            $children = $this->productModel->getProductSubcategoryList($parentId, 'ACTIVE');
+            $subcategories = array_map(function ($child) {
+                return $this->publicCategoryNode($child);
+            }, is_array($children) ? $children : []);
+
+            return json_success([
+                'parent' => $this->publicCategoryNode($parent),
+                'subcategories' => $subcategories,
+            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'Products::subcategoriesByParentSlug: ' . $e->getMessage());
+            return json_error('Failed to fetch subcategories', 500);
         }
     }
 

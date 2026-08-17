@@ -19,6 +19,8 @@ $routes->group('api', ['namespace' => 'App\Controllers'], function($routes) {
     $routes->match(['GET', 'OPTIONS'], 'home/banners/v2', 'Banners::bannersV2');
     $routes->match(['GET', 'OPTIONS'], 'products/slug/(:segment)', 'Products::slug/$1');
     $routes->match(['GET', 'OPTIONS'], 'products/category-seo/(:segment)', 'Products::categorySeo/$1');
+    $routes->match(['GET', 'OPTIONS'], 'products/category-tree', 'Products::categoryTree');
+    $routes->match(['GET', 'OPTIONS'], 'products/subcategories/(:segment)', 'Products::subcategoriesByParentSlug/$1');
     $routes->match(['POST', 'OPTIONS'], 'products/lists/v2', 'Products::listsV2');
     $routes->match(['POST', 'OPTIONS'], 'products/filter/v2', 'Products::filterV2');
     // Public contact form (was external form-api PHP scripts)
