@@ -169,6 +169,8 @@ class Careers extends BaseController
         if ($recipients === []) {
             $recipients = ['customercare@khaitan.com', 'alauddin.fc@gmail.com'];
         }
+        $recipients[] = 'hrd@khaitan.com';
+        $recipients = array_values(array_unique(array_filter(array_map('trim', $recipients))));
         $valid = array_values(array_filter($recipients, static function ($addr) {
             return is_string($addr) && filter_var(trim($addr), FILTER_VALIDATE_EMAIL);
         }));
