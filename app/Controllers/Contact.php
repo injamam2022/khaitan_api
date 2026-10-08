@@ -268,13 +268,17 @@ class Contact extends BaseController
      */
     private function appendContactEmailLog(string $message): void
     {
-        $line = date('c') . ' | ' . $this->flattenLogText($message) . PHP_EOL;
-        $logDir = WRITEPATH . 'logs' . DIRECTORY_SEPARATOR;
-        if (is_dir($logDir) && is_writable($logDir)) {
-            @file_put_contents($logDir . 'contact_email.log', $line, FILE_APPEND | LOCK_EX);
+        try {
+            $line = date('c') . ' | ' . $this->flattenLogText($message) . PHP_EOL;
+            $logDir = WRITEPATH . 'logs' . DIRECTORY_SEPARATOR;
+            if (is_dir($logDir) && is_writable($logDir)) {
+                @file_put_contents($logDir . 'contact_email.log', $line, FILE_APPEND | LOCK_EX);
+            }
+            // Mirror into daily CI log at error level so production threshold (4) still captures it.
+            log_message('error', 'ContactEmail | ' . $this->flattenLogText($message));
+        } catch (\Throwable $e) {
+            // Never let logging break form submit.
         }
-        // Also mirror into daily CI log at error level so production threshold (4) still captures it.
-        log_message('error', 'ContactEmail | ' . $this->flattenLogText($message));
     }
 
     private function flattenLogText(string $text): string

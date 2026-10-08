@@ -28,6 +28,10 @@ $routes->group('api', ['namespace' => 'App\Controllers'], function($routes) {
     // Public careers
     $routes->match(['GET', 'OPTIONS'], 'careers/openings', 'Careers::openings');
     $routes->match(['POST', 'OPTIONS'], 'careers/apply', 'Careers::apply');
+    // B2C sales (separate from bulk enquiries & main cart orders)
+    $routes->match(['POST', 'OPTIONS'], 'b2c/products/list', 'B2cSales::productsList');
+    $routes->match(['POST', 'OPTIONS'], 'b2c/order/create', 'B2cSales::createOrder');
+    $routes->match(['POST', 'OPTIONS'], 'b2c/payment/verify', 'B2cSales::verifyPayment');
     $routes->match(['GET', 'OPTIONS'], 'international/pages', 'InternationalPages::publicIndex');
     $routes->match(['GET', 'OPTIONS'], 'international/pages/(:segment)', 'InternationalPages::publicShow/$1');
     $routes->match(['POST', 'OPTIONS'], 'international/enquire', 'InternationalPages::enquire');
@@ -201,6 +205,10 @@ $routes->GET('cron/inventory-sync', 'Cron\InventorySync::index');
 $routes->GET('cron/stock-sync-push', 'Cron\StockSyncPush::index');
 $routes->GET('cron/order-status-sync', 'Cron\OrderStatusSync::index');
 $routes->GET('cron/easyecom-retry', 'Cron\EasyEcomRetry::index');
+
+// B2C orders (admin; separate from bulk enquiries)
+$routes->GET('b2c-orders', 'B2cOrdersAdmin::index');
+$routes->GET('b2c-orders/(:num)', 'B2cOrdersAdmin::show/$1');
 
 // International location pages (admin CRUD; public reads live under api/international)
 $routes->GET('international-pages', 'InternationalPages::index');

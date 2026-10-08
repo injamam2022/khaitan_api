@@ -17,7 +17,8 @@ class ProductModel extends Model
         'stock_quantity', 'in_stock', 'gst_rate', 'unit_id', 'unit_name',
         'product_type', 'home_display_status', 'home_display_order', 'status', 'created_id', 'created_on',
         'weight', 'dimensions', 'visibility', 'featured',
-        'amazon_link', 'flipkart_link', 'meta_title', 'meta_description', 'meta_keywords'
+        'amazon_link', 'flipkart_link', 'meta_title', 'meta_description', 'meta_keywords',
+        'is_b2c_sale'
     ];
     
     protected $useTimestamps = false;
