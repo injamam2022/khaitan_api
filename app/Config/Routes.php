@@ -28,6 +28,9 @@ $routes->group('api', ['namespace' => 'App\Controllers'], function($routes) {
     // Public careers
     $routes->match(['GET', 'OPTIONS'], 'careers/openings', 'Careers::openings');
     $routes->match(['POST', 'OPTIONS'], 'careers/apply', 'Careers::apply');
+    $routes->match(['GET', 'OPTIONS'], 'international/pages', 'InternationalPages::publicIndex');
+    $routes->match(['GET', 'OPTIONS'], 'international/pages/(:segment)', 'InternationalPages::publicShow/$1');
+    $routes->match(['POST', 'OPTIONS'], 'international/enquire', 'InternationalPages::enquire');
 });
 
 // Dashboard Routes
@@ -198,6 +201,21 @@ $routes->GET('cron/inventory-sync', 'Cron\InventorySync::index');
 $routes->GET('cron/stock-sync-push', 'Cron\StockSyncPush::index');
 $routes->GET('cron/order-status-sync', 'Cron\OrderStatusSync::index');
 $routes->GET('cron/easyecom-retry', 'Cron\EasyEcomRetry::index');
+
+// International location pages (admin CRUD; public reads live under api/international)
+$routes->GET('international-pages', 'InternationalPages::index');
+$routes->match(['POST', 'OPTIONS'], 'international-pages/add', 'InternationalPages::add');
+$routes->match(['POST', 'OPTIONS'], 'international-pages/sample', 'InternationalPages::sample');
+$routes->GET('international-pages/(:num)', 'InternationalPages::show/$1');
+$routes->match(['POST', 'OPTIONS'], 'international-pages/edit/(:num)', 'InternationalPages::edit/$1');
+$routes->match(['POST', 'OPTIONS'], 'international-pages/delete/(:num)', 'InternationalPages::delete/$1');
+$routes->match(['POST', 'OPTIONS'], 'international-pages/duplicate/(:num)', 'InternationalPages::duplicate/$1');
+$routes->match(['POST', 'OPTIONS'], 'international-pages/(:num)/folds', 'InternationalPages::addFold/$1');
+$routes->match(['POST', 'OPTIONS'], 'international-pages/folds/edit/(:num)', 'InternationalPages::editFold/$1');
+$routes->match(['POST', 'OPTIONS'], 'international-pages/folds/delete/(:num)', 'InternationalPages::deleteFold/$1');
+$routes->match(['POST', 'OPTIONS'], 'international-pages/folds/brochure/(:num)', 'InternationalPages::brochure/$1');
+$routes->match(['POST', 'OPTIONS'], 'international-pages/folds/banner/(:num)', 'InternationalPages::banner/$1');
+$routes->GET('international-enquiries', 'InternationalPages::enquiries');
 
 // Contact enquiries (admin list/export/delete; session auth via check_auth in controller)
 $routes->GET('contact-enquiries', 'ContactEnquiries::index');
