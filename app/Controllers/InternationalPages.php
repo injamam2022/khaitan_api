@@ -27,11 +27,12 @@ class InternationalPages extends BaseController
     public function show($id = null): ResponseInterface
     {
         check_auth();
-        $page = $this->pages->getPage((int) $id, true);
-        if (!$page) {
+        $pageId = (int) $id;
+        if (!$this->pages->getPage($pageId, false)) {
             return json_error('Page not found', 404);
         }
-        return json_success($page);
+        $this->pages->ensureSharedProductFolds($pageId);
+        return json_success($this->pages->getPage($pageId, true));
     }
 
     public function add(): ResponseInterface
@@ -54,6 +55,7 @@ class InternationalPages extends BaseController
             'interest_options' => $this->pages->defaultInterests(),
         ]);
         $this->pages->addFold($id, 'hero');
+        $this->pages->ensureSharedProductFolds($id);
         return json_success($this->pages->getPage($id, true), 'Location created');
     }
 
@@ -116,6 +118,7 @@ class InternationalPages extends BaseController
         if (!$newId) {
             return json_error('Page not found', 404);
         }
+        $this->pages->ensureSharedProductFolds($newId);
         return json_success($this->pages->getPage($newId, true), 'Page duplicated');
     }
 
@@ -171,6 +174,9 @@ class InternationalPages extends BaseController
         if (array_key_exists('payload', $payload) && is_array($payload['payload'])) {
             $update['payload'] = $payload['payload'];
         }
+        if (in_array($fold['fold_type'], ['categories', 'showcase'], true)) {
+            unset($update['fold_type'], $update['title'], $update['body'], $update['payload']);
+        }
         $this->pages->updateFold($foldId, $update);
         return json_success($this->pages->getFold($foldId), 'Fold saved');
     }
@@ -181,6 +187,9 @@ class InternationalPages extends BaseController
         $fold = $this->pages->getFold((int) $id);
         if (!$fold) {
             return json_error('Fold not found', 404);
+        }
+        if (in_array($fold['fold_type'], ['categories', 'showcase'], true)) {
+            return json_error('Product sections stay the same on every international page.', 422);
         }
         $this->pages->deleteFold((int) $id);
         return json_success(null, 'Fold deleted');

@@ -239,28 +239,43 @@ class InternationalPageModel extends Model
 
     public function addFold(int $pageId, string $type): int
     {
-        $max = $this->db->table('intl_folds')->selectMax('sort_order', 'max_order')->where('page_id', $pageId)->get()->getRowArray();
+        if (in_array($type, ['categories', 'showcase'], true)) {
+            $shared = $this->nextUnusedSharedFold($pageId, $type);
+            if ($shared) {
+                return $this->insertFoldRow($pageId, $shared);
+            }
+        }
         $defaults = $this->defaultFold($type);
-        $now = date('Y-m-d H:i:s');
-        $this->db->table('intl_folds')->insert([
-            'page_id' => $pageId,
-            'fold_type' => $type,
-            'title' => $defaults['title'],
-            'body' => $defaults['body'],
-            'trust_line' => $defaults['trust_line'],
-            'cta_primary_label' => $defaults['cta_primary_label'],
-            'cta_primary_url' => $defaults['cta_primary_url'],
-            'cta_secondary_label' => $defaults['cta_secondary_label'],
-            'brochure_label' => $defaults['brochure_label'],
-            'brochure_url' => null,
-            'brochure_name' => null,
-            'payload' => json_encode($defaults['payload']),
-            'sort_order' => (int) ($max['max_order'] ?? 0) + 1,
-            'is_active' => 1,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
-        return (int) $this->db->insertID();
+        $defaults['fold_type'] = $type;
+        return $this->insertFoldRow($pageId, $defaults);
+    }
+
+    public function ensureSharedProductFolds(int $pageId): void
+    {
+        $existing = $this->db->table('intl_folds')->where('page_id', $pageId)->get()->getResultArray();
+        $byKey = [];
+        foreach ($existing as $row) {
+            $payload = json_decode((string) ($row['payload'] ?? ''), true);
+            $payload = is_array($payload) ? $payload : [];
+            $byKey[$this->sharedFoldKey($row['fold_type'], $payload['anchor'] ?? $row['fold_type'])] = $row + ['_payload' => $payload];
+        }
+        foreach ($this->sharedProductFolds() as $fold) {
+            $key = $this->sharedFoldKey($fold['fold_type'], $fold['payload']['anchor'] ?? $fold['fold_type']);
+            if (!isset($byKey[$key])) {
+                $this->insertFoldRow($pageId, $fold);
+                continue;
+            }
+            $row = $byKey[$key];
+            $payload = $row['_payload'];
+            $payload['anchor'] = $fold['payload']['anchor'];
+            $payload['items'] = $fold['payload']['items'];
+            $this->updateFold((int) $row['id'], [
+                'title' => $fold['title'],
+                'body' => $fold['body'],
+                'cta_secondary_label' => $fold['cta_secondary_label'] ?? 'Enquire',
+                'payload' => $payload,
+            ]);
+        }
     }
 
     public function updateFold(int $id, array $data): bool
@@ -310,14 +325,16 @@ class InternationalPageModel extends Model
             $this->insertSamplePage($this->uaePage(), $this->uaeFolds());
         }
         if (!$this->slugExists('nepal')) {
-            $this->insertSamplePage($this->shellPage('NEPAL', 'nepal', 'Nepal', 2), [
-                $this->shellHero('Nepal'),
-            ]);
+            $this->insertSamplePage($this->shellPage('NEPAL', 'nepal', 'Nepal', 2), array_merge(
+                [$this->shellHero('Nepal')],
+                $this->sharedProductFolds()
+            ));
         }
         if (!$this->slugExists('bhutan')) {
-            $this->insertSamplePage($this->shellPage('BHUTAN', 'bhutan', 'Bhutan', 3), [
-                $this->shellHero('Bhutan'),
-            ]);
+            $this->insertSamplePage($this->shellPage('BHUTAN', 'bhutan', 'Bhutan', 3), array_merge(
+                [$this->shellHero('Bhutan')],
+                $this->sharedProductFolds()
+            ));
         }
     }
 
@@ -330,28 +347,64 @@ class InternationalPageModel extends Model
     {
         $id = $this->createPage($page);
         $order = 1;
-        $now = date('Y-m-d H:i:s');
         foreach ($folds as $fold) {
-            $this->db->table('intl_folds')->insert([
-                'page_id' => $id,
-                'fold_type' => $fold['fold_type'],
-                'title' => $fold['title'] ?? '',
-                'body' => $fold['body'] ?? '',
-                'trust_line' => $fold['trust_line'] ?? '',
-                'cta_primary_label' => $fold['cta_primary_label'] ?? '',
-                'cta_primary_url' => $fold['cta_primary_url'] ?? '',
-                'cta_secondary_label' => $fold['cta_secondary_label'] ?? 'Enquire',
-                'brochure_label' => $fold['brochure_label'] ?? 'Download brochure',
-                'brochure_url' => null,
-                'brochure_name' => null,
-                'payload' => json_encode($fold['payload'] ?? []),
-                'sort_order' => $order++,
-                'is_active' => 1,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
+            $this->insertFoldRow($id, $fold, $order++);
         }
         return $id;
+    }
+
+    private function insertFoldRow(int $pageId, array $fold, ?int $sortOrder = null): int
+    {
+        if ($sortOrder === null) {
+            $max = $this->db->table('intl_folds')->selectMax('sort_order', 'max_order')->where('page_id', $pageId)->get()->getRowArray();
+            $sortOrder = (int) ($max['max_order'] ?? 0) + 1;
+        }
+        $now = date('Y-m-d H:i:s');
+        $this->db->table('intl_folds')->insert([
+            'page_id' => $pageId,
+            'fold_type' => $fold['fold_type'],
+            'title' => $fold['title'] ?? '',
+            'body' => $fold['body'] ?? '',
+            'trust_line' => $fold['trust_line'] ?? '',
+            'cta_primary_label' => $fold['cta_primary_label'] ?? '',
+            'cta_primary_url' => $fold['cta_primary_url'] ?? '',
+            'cta_secondary_label' => $fold['cta_secondary_label'] ?? 'Enquire',
+            'brochure_label' => $fold['brochure_label'] ?? 'Download brochure',
+            'brochure_url' => $fold['brochure_url'] ?? null,
+            'brochure_name' => $fold['brochure_name'] ?? null,
+            'payload' => json_encode($fold['payload'] ?? []),
+            'sort_order' => $sortOrder,
+            'is_active' => 1,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        return (int) $this->db->insertID();
+    }
+
+    private function sharedFoldKey(string $type, string $anchor): string
+    {
+        return $type . ':' . $anchor;
+    }
+
+    private function nextUnusedSharedFold(int $pageId, string $type): ?array
+    {
+        $existing = [];
+        foreach ($this->foldsForPage($pageId) as $fold) {
+            if ($fold['fold_type'] !== $type) {
+                continue;
+            }
+            $existing[$this->sharedFoldKey($type, $fold['payload']['anchor'] ?? $type)] = true;
+        }
+        foreach ($this->sharedProductFolds() as $fold) {
+            if ($fold['fold_type'] !== $type) {
+                continue;
+            }
+            $key = $this->sharedFoldKey($type, $fold['payload']['anchor'] ?? $type);
+            if (!isset($existing[$key])) {
+                return $fold;
+            }
+        }
+        return null;
     }
 
     private function formatPage(array $row, bool $withFolds): array
@@ -461,42 +514,13 @@ class InternationalPageModel extends Model
         ];
     }
 
-    private function uaeFolds(): array
+    private function sharedProductFolds(): array
     {
         return [
             [
-                'fold_type' => 'hero',
-                'title' => 'Reliable Home Appliances for Modern UAE Living',
-                'body' => 'Discover Khaitan’s range of fans, air coolers, water heaters, kitchen appliances and home appliances designed around everyday comfort, performance and convenience.',
-                'trust_line' => 'Fans | Air Coolers | Water Heaters | Kitchen Appliances | Home Appliances',
-                'cta_primary_label' => 'Explore Products',
-                'cta_primary_url' => '#fold-categories',
-                'cta_secondary_label' => 'Enquire for UAE Availability',
-                'brochure_label' => 'Download brochure',
-                'payload' => [
-                    'anchor' => 'hero',
-                    'hero_image' => 'assets/banners/1771575379_ef023b788ac9d3b44c75.jpg',
-                ],
-            ],
-            [
-                'fold_type' => 'story',
-                'title' => 'A Trusted Indian Electrical Brand Since 1971',
-                'body' => 'Khaitan is an established Indian electrical brand offering fans, air coolers, water heaters, kitchen appliances and home appliances. For customers in the UAE, the range includes BLDC ceiling fans, personal and commercial air coolers, high-pressure water heaters and everyday kitchen appliances designed for comfort, convenience and practical performance.',
-                'cta_secondary_label' => 'Enquire',
-                'brochure_label' => 'Download brochure',
-                'payload' => [
-                    'anchor' => 'story',
-                    'stats' => [
-                        ['value' => 'Since 1971', 'label' => ''],
-                        ['value' => '50+', 'label' => 'yrs'],
-                        ['value' => '200+', 'label' => 'Products'],
-                    ],
-                ],
-            ],
-            [
                 'fold_type' => 'categories',
                 'title' => 'Product Categories',
-                'body' => 'Browse the Khaitan ranges available for UAE homes, offices and commercial spaces.',
+                'body' => 'Browse the Khaitan ranges for homes, offices and commercial spaces.',
                 'cta_secondary_label' => 'Enquire',
                 'brochure_label' => 'Download brochure',
                 'payload' => [
@@ -531,8 +555,8 @@ class InternationalPageModel extends Model
             ],
             [
                 'fold_type' => 'showcase',
-                'title' => 'Powerful Air Coolers for Homes & Commercial Spaces in the UAE',
-                'body' => 'Stay comfortable in the UAE heat with Khaitan air coolers designed for homes, shops, offices, warehouses and commercial spaces. Explore personal and commercial air coolers with high air delivery, honeycomb cooling pads, powerful motors and large water tanks, available in multiple capacities to suit different room sizes and cooling requirements.',
+                'title' => 'Powerful Air Coolers for Homes & Commercial Spaces',
+                'body' => 'Stay comfortable with Khaitan air coolers designed for homes, shops, offices, warehouses and commercial spaces. Explore personal and commercial air coolers with high air delivery, honeycomb cooling pads, powerful motors and large water tanks, available in multiple capacities to suit different room sizes and cooling requirements.',
                 'cta_secondary_label' => 'Enquire',
                 'brochure_label' => 'Download brochure',
                 'payload' => [
@@ -561,8 +585,8 @@ class InternationalPageModel extends Model
             ],
             [
                 'fold_type' => 'showcase',
-                'title' => 'Energy-Efficient Ceiling Fans for Modern UAE Homes',
-                'body' => 'Discover Khaitan ceiling fans designed for efficient airflow, quiet operation and everyday comfort. With aerodynamic blades, low power input, double ball bearings and smart remote-control features on selected models, Khaitan fans combine performance with modern design for homes, apartments, offices and commercial spaces across the UAE.',
+                'title' => 'Energy-Efficient Ceiling Fans for Modern Homes',
+                'body' => 'Discover Khaitan ceiling fans designed for efficient airflow, quiet operation and everyday comfort. With aerodynamic blades, low power input, double ball bearings and smart remote-control features on selected models, Khaitan fans combine performance with modern design for homes, apartments, offices and commercial spaces.',
                 'cta_secondary_label' => 'Enquire',
                 'brochure_label' => 'Download brochure',
                 'payload' => [
@@ -571,19 +595,19 @@ class InternationalPageModel extends Model
                         [
                             'title' => 'Whispair BLDC',
                             'href' => '/collections/ceiling-fans',
-                            'image' => '/assets/img/ceillingfan.webp',
+                            'image' => '/assets/img/products/fans/whispair-card.webp',
                             'usps' => ['Aerodynamic blades', 'Low power input', 'Smart remote on selected models'],
                         ],
                         [
                             'title' => 'Buddy BLDC',
                             'href' => '/collections/ceiling-fans',
-                            'image' => '/assets/img/products/fans/dezirered.webp',
+                            'image' => '/assets/img/products/fans/buddy-card.webp',
                             'usps' => ['Quiet everyday airflow', 'Double ball bearings', 'Suitable for apartments and offices'],
                         ],
                         [
                             'title' => 'Airwave BLDC',
                             'href' => '/collections/ceiling-fans',
-                            'image' => '/assets/img/products/fans/toofangray.webp',
+                            'image' => '/assets/img/products/fans/airwave-cutout.webp',
                             'usps' => ['Efficient airflow', 'Modern finish', 'Compare sweep and air delivery'],
                         ],
                     ],
@@ -591,7 +615,7 @@ class InternationalPageModel extends Model
             ],
             [
                 'fold_type' => 'showcase',
-                'title' => 'Khaitan Water Heaters for UAE Homes',
+                'title' => 'Khaitan Water Heaters for Homes',
                 'body' => 'Choose a water heater based on household size, installation requirements, capacity and pressure requirements.',
                 'cta_secondary_label' => 'Enquire',
                 'brochure_label' => 'Download brochure',
@@ -649,6 +673,45 @@ class InternationalPageModel extends Model
                     ],
                 ],
             ],
+        ];
+    }
+
+    private function uaeFolds(): array
+    {
+        return array_merge(
+            [
+            [
+                'fold_type' => 'hero',
+                'title' => 'Reliable Home Appliances for Modern UAE Living',
+                'body' => 'Discover Khaitan’s range of fans, air coolers, water heaters, kitchen appliances and home appliances designed around everyday comfort, performance and convenience.',
+                'trust_line' => 'Fans | Air Coolers | Water Heaters | Kitchen Appliances | Home Appliances',
+                'cta_primary_label' => 'Explore Products',
+                'cta_primary_url' => '#fold-categories',
+                'cta_secondary_label' => 'Enquire for UAE Availability',
+                'brochure_label' => 'Download brochure',
+                'payload' => [
+                    'anchor' => 'hero',
+                    'hero_image' => 'assets/banners/1771575379_ef023b788ac9d3b44c75.jpg',
+                ],
+            ],
+            [
+                'fold_type' => 'story',
+                'title' => 'A Trusted Indian Electrical Brand Since 1971',
+                'body' => 'Khaitan is an established Indian electrical brand offering fans, air coolers, water heaters, kitchen appliances and home appliances. For customers in the UAE, the range includes BLDC ceiling fans, personal and commercial air coolers, high-pressure water heaters and everyday kitchen appliances designed for comfort, convenience and practical performance.',
+                'cta_secondary_label' => 'Enquire',
+                'brochure_label' => 'Download brochure',
+                'payload' => [
+                    'anchor' => 'story',
+                    'stats' => [
+                        ['value' => 'Since 1971', 'label' => ''],
+                        ['value' => '50+', 'label' => 'yrs'],
+                        ['value' => '200+', 'label' => 'Products'],
+                    ],
+                ],
+            ],
+            ],
+            $this->sharedProductFolds(),
+            [
             [
                 'fold_type' => 'faq',
                 'title' => 'Khaitan UAE FAQs – Air Coolers, BLDC Fans, Water Heaters & Home Appliances',
@@ -701,6 +764,7 @@ class InternationalPageModel extends Model
                     ],
                 ],
             ],
-        ];
+            ]
+        );
     }
 }
