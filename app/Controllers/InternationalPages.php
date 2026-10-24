@@ -81,9 +81,19 @@ class InternationalPages extends BaseController
             }
             $update['slug'] = $slug;
         }
-        foreach (['country', 'status', 'seo_title', 'seo_description'] as $field) {
+        $limits = [
+            'country' => 120,
+            'seo_title' => 180,
+            'seo_description' => 320,
+            'seo_keywords' => 512,
+        ];
+        foreach (['country', 'status', 'seo_title', 'seo_description', 'seo_keywords'] as $field) {
             if (array_key_exists($field, $payload)) {
-                $update[$field] = trim((string) $payload[$field]);
+                $value = trim((string) $payload[$field]);
+                if (isset($limits[$field])) {
+                    $value = mb_substr($value, 0, $limits[$field]);
+                }
+                $update[$field] = $value;
             }
         }
         if (isset($update['status']) && !in_array($update['status'], ['draft', 'published'], true)) {

@@ -17,6 +17,7 @@ class InternationalPageModel extends Model
         'sort_order',
         'seo_title',
         'seo_description',
+        'seo_keywords',
         'interest_options',
         'created_at',
         'updated_at',
@@ -37,6 +38,7 @@ class InternationalPageModel extends Model
                 'sort_order' => ['type' => 'INT', 'default' => 0],
                 'seo_title' => ['type' => 'VARCHAR', 'constraint' => 180, 'null' => true],
                 'seo_description' => ['type' => 'VARCHAR', 'constraint' => 320, 'null' => true],
+                'seo_keywords' => ['type' => 'VARCHAR', 'constraint' => 512, 'null' => true],
                 'interest_options' => ['type' => 'TEXT', 'null' => true],
                 'created_at' => ['type' => 'DATETIME', 'null' => true],
                 'updated_at' => ['type' => 'DATETIME', 'null' => true],
@@ -97,9 +99,17 @@ class InternationalPageModel extends Model
             $forge->createTable('intl_enquiries', true);
         }
 
+        if ($this->db->tableExists('intl_pages') && !$this->db->fieldExists('seo_keywords', 'intl_pages')) {
+            $forge->addColumn('intl_pages', [
+                'seo_keywords' => ['type' => 'VARCHAR', 'constraint' => 512, 'null' => true],
+            ]);
+        }
+
         if ($created && (int) $this->db->table('intl_pages')->countAllResults() === 0) {
             $this->seedSamples();
         }
+
+        $this->backfillSeo();
     }
 
     public function listPages(bool $publishedOnly = false): array
@@ -152,14 +162,17 @@ class InternationalPageModel extends Model
     public function createPage(array $data): int
     {
         $now = date('Y-m-d H:i:s');
+        $country = $data['country'] ?? $data['name'];
+        $seo = $this->seoFor((string) $data['slug'], (string) $data['name'], (string) $country);
         $this->db->table('intl_pages')->insert([
             'name' => $data['name'],
             'slug' => $data['slug'],
-            'country' => $data['country'] ?? $data['name'],
+            'country' => $country,
             'status' => $data['status'] ?? 'draft',
             'sort_order' => $data['sort_order'] ?? $this->nextSortOrder(),
-            'seo_title' => $data['seo_title'] ?? null,
-            'seo_description' => $data['seo_description'] ?? null,
+            'seo_title' => $this->seoValue($data['seo_title'] ?? null, $seo['seo_title'], 180),
+            'seo_description' => $this->seoValue($data['seo_description'] ?? null, $seo['seo_description'], 320),
+            'seo_keywords' => $this->seoValue($data['seo_keywords'] ?? null, $seo['seo_keywords'], 512),
             'interest_options' => json_encode($data['interest_options'] ?? $this->defaultInterests()),
             'created_at' => $now,
             'updated_at' => $now,
@@ -170,7 +183,7 @@ class InternationalPageModel extends Model
     public function updatePage(int $id, array $data): bool
     {
         $payload = ['updated_at' => date('Y-m-d H:i:s')];
-        foreach (['name', 'slug', 'country', 'status', 'sort_order', 'seo_title', 'seo_description'] as $field) {
+        foreach (['name', 'slug', 'country', 'status', 'sort_order', 'seo_title', 'seo_description', 'seo_keywords'] as $field) {
             if (array_key_exists($field, $data)) {
                 $payload[$field] = $data[$field];
             }
@@ -207,6 +220,7 @@ class InternationalPageModel extends Model
             'status' => 'draft',
             'seo_title' => $page['seo_title'],
             'seo_description' => $page['seo_description'],
+            'seo_keywords' => $page['seo_keywords'] ?? null,
             'interest_options' => json_decode((string) $page['interest_options'], true) ?: $this->defaultInterests(),
         ]);
         $folds = $this->db->table('intl_folds')->where('page_id', $id)->orderBy('sort_order', 'ASC')->get()->getResultArray();
@@ -462,16 +476,104 @@ class InternationalPageModel extends Model
 
     private function shellPage(string $name, string $slug, string $country, int $order): array
     {
-        return [
+        return array_merge($this->seoFor($slug, $name, $country), [
             'name' => $name,
             'slug' => $slug,
             'country' => $country,
             'status' => 'draft',
             'sort_order' => $order,
-            'seo_title' => 'Khaitan ' . $country,
-            'seo_description' => 'Khaitan home appliances for ' . $country . '.',
             'interest_options' => $this->defaultInterests(),
+        ]);
+    }
+
+    private function seoFor(string $slug, string $name, string $country): array
+    {
+        $presets = [
+            'uae' => [
+                'seo_title' => 'Khaitan UAE | Fans, Air Coolers & Water Heaters',
+                'seo_description' => 'Discover Khaitan fans, air coolers, water heaters and home appliances for modern UAE living. Download a brochure or enquire for availability.',
+                'seo_keywords' => 'Khaitan UAE, ceiling fans UAE, BLDC fans UAE, air coolers UAE, water heaters UAE, kitchen appliances UAE, home appliances UAE',
+            ],
+            'nepal' => [
+                'seo_title' => 'Khaitan Nepal | Fans, Air Coolers & Water Heaters',
+                'seo_description' => 'Explore Khaitan ceiling fans, air coolers, water heaters and kitchen appliances in Nepal. Download a brochure or enquire for local availability.',
+                'seo_keywords' => 'Khaitan Nepal, ceiling fans Nepal, air coolers Nepal, water heaters Nepal, kitchen appliances Nepal, home appliances Nepal',
+            ],
+            'bhutan' => [
+                'seo_title' => 'Khaitan Bhutan | Fans, Air Coolers & Water Heaters',
+                'seo_description' => 'Explore Khaitan ceiling fans, air coolers, water heaters and home appliances in Bhutan. View the range, download a brochure, or send an enquiry.',
+                'seo_keywords' => 'Khaitan Bhutan, ceiling fans Bhutan, air coolers Bhutan, water heaters Bhutan, kitchen appliances Bhutan, home appliances Bhutan',
+            ],
         ];
+        if (isset($presets[$slug])) {
+            return $presets[$slug];
+        }
+
+        $place = trim($country) !== '' ? trim($country) : trim($name);
+        $title = 'Khaitan ' . $place . ' | Fans, Coolers & Water Heaters';
+        if (mb_strlen($title) > 180) {
+            $title = mb_substr($title, 0, 180);
+        }
+
+        return [
+            'seo_title' => $title,
+            'seo_description' => mb_substr('Explore Khaitan fans, air coolers, water heaters and home appliances in ' . $place . '. View the range, download a brochure, or send an enquiry.', 0, 320),
+            'seo_keywords' => mb_substr('Khaitan ' . $place . ', ceiling fans ' . $place . ', air coolers ' . $place . ', water heaters ' . $place . ', home appliances ' . $place, 0, 512),
+        ];
+    }
+
+    private function seoValue($value, string $fallback, int $limit): string
+    {
+        $text = trim((string) $value);
+        return mb_substr($text === '' ? $fallback : $text, 0, $limit);
+    }
+
+    private function backfillSeo(): void
+    {
+        if (!$this->db->tableExists('intl_pages') || !$this->db->fieldExists('seo_keywords', 'intl_pages')) {
+            return;
+        }
+
+        $rows = $this->db->table('intl_pages')->get()->getResultArray();
+        foreach ($rows as $row) {
+            $seo = $this->seoFor((string) $row['slug'], (string) $row['name'], (string) ($row['country'] ?? ''));
+            $update = [];
+            if ($this->seoNeedsDefault($row['seo_title'] ?? null, $row)) {
+                $update['seo_title'] = $seo['seo_title'];
+            }
+            if ($this->seoNeedsDefault($row['seo_description'] ?? null, $row, true)) {
+                $update['seo_description'] = $seo['seo_description'];
+            }
+            if (trim((string) ($row['seo_keywords'] ?? '')) === '') {
+                $update['seo_keywords'] = $seo['seo_keywords'];
+            }
+            if ($update !== []) {
+                $update['updated_at'] = date('Y-m-d H:i:s');
+                $this->db->table('intl_pages')->where('id', $row['id'])->update($update);
+            }
+        }
+    }
+
+    private function seoNeedsDefault($value, array $row, bool $description = false): bool
+    {
+        $text = trim((string) $value);
+        if ($text === '') {
+            return true;
+        }
+        $place = trim((string) ($row['country'] ?? ''));
+        $name = trim((string) ($row['name'] ?? ''));
+        $generic = $description
+            ? [
+                'Khaitan home appliances for ' . $place . '.',
+                'Khaitan home appliances for ' . $name . '.',
+                'Discover Khaitan fans, air coolers, water heaters, kitchen appliances and home appliances for modern UAE living.',
+            ]
+            : [
+                'Khaitan ' . $place,
+                'Khaitan ' . $name,
+                'Khaitan UAE | Fans, Air Coolers, Water Heaters & Home Appliances',
+            ];
+        return in_array($text, $generic, true);
     }
 
     private function shellHero(string $country): array
@@ -497,8 +599,6 @@ class InternationalPageModel extends Model
             'country' => 'United Arab Emirates',
             'status' => 'published',
             'sort_order' => 1,
-            'seo_title' => 'Khaitan UAE | Fans, Air Coolers, Water Heaters & Home Appliances',
-            'seo_description' => 'Discover Khaitan fans, air coolers, water heaters, kitchen appliances and home appliances for modern UAE living.',
             'interest_options' => $this->defaultInterests(),
         ];
     }
