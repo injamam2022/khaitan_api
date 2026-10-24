@@ -27,12 +27,11 @@ class InternationalPages extends BaseController
     public function show($id = null): ResponseInterface
     {
         check_auth();
-        $pageId = (int) $id;
-        if (!$this->pages->getPage($pageId, false)) {
+        $page = $this->pages->getPage((int) $id, true);
+        if (!$page) {
             return json_error('Page not found', 404);
         }
-        $this->pages->ensureSharedProductFolds($pageId);
-        return json_success($this->pages->getPage($pageId, true));
+        return json_success($page);
     }
 
     public function add(): ResponseInterface
@@ -174,9 +173,6 @@ class InternationalPages extends BaseController
         if (array_key_exists('payload', $payload) && is_array($payload['payload'])) {
             $update['payload'] = $payload['payload'];
         }
-        if (in_array($fold['fold_type'], ['categories', 'showcase'], true)) {
-            unset($update['fold_type'], $update['title'], $update['body'], $update['payload']);
-        }
         $this->pages->updateFold($foldId, $update);
         return json_success($this->pages->getFold($foldId), 'Fold saved');
     }
@@ -187,9 +183,6 @@ class InternationalPages extends BaseController
         $fold = $this->pages->getFold((int) $id);
         if (!$fold) {
             return json_error('Fold not found', 404);
-        }
-        if (in_array($fold['fold_type'], ['categories', 'showcase'], true)) {
-            return json_error('Product sections stay the same on every international page.', 422);
         }
         $this->pages->deleteFold((int) $id);
         return json_success(null, 'Fold deleted');

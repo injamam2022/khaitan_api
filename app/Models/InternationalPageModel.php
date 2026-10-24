@@ -252,29 +252,18 @@ class InternationalPageModel extends Model
 
     public function ensureSharedProductFolds(int $pageId): void
     {
-        $existing = $this->db->table('intl_folds')->where('page_id', $pageId)->get()->getResultArray();
-        $byKey = [];
-        foreach ($existing as $row) {
+        $existingKeys = [];
+        foreach ($this->db->table('intl_folds')->where('page_id', $pageId)->get()->getResultArray() as $row) {
             $payload = json_decode((string) ($row['payload'] ?? ''), true);
             $payload = is_array($payload) ? $payload : [];
-            $byKey[$this->sharedFoldKey($row['fold_type'], $payload['anchor'] ?? $row['fold_type'])] = $row + ['_payload' => $payload];
+            $existingKeys[$this->sharedFoldKey($row['fold_type'], $payload['anchor'] ?? $row['fold_type'])] = true;
         }
         foreach ($this->sharedProductFolds() as $fold) {
             $key = $this->sharedFoldKey($fold['fold_type'], $fold['payload']['anchor'] ?? $fold['fold_type']);
-            if (!isset($byKey[$key])) {
-                $this->insertFoldRow($pageId, $fold);
+            if (isset($existingKeys[$key])) {
                 continue;
             }
-            $row = $byKey[$key];
-            $payload = $row['_payload'];
-            $payload['anchor'] = $fold['payload']['anchor'];
-            $payload['items'] = $fold['payload']['items'];
-            $this->updateFold((int) $row['id'], [
-                'title' => $fold['title'],
-                'body' => $fold['body'],
-                'cta_secondary_label' => $fold['cta_secondary_label'] ?? 'Enquire',
-                'payload' => $payload,
-            ]);
+            $this->insertFoldRow($pageId, $fold);
         }
     }
 
