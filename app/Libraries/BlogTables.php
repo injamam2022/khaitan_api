@@ -21,6 +21,7 @@ class BlogTables
           content LONGTEXT NULL,
           seo_title VARCHAR(180) NULL,
           seo_description VARCHAR(320) NULL,
+          seo_keywords VARCHAR(512) NULL,
           canonical_url VARCHAR(500) NULL,
           internal_links TEXT NULL,
           is_active TINYINT(1) NOT NULL DEFAULT 1,
@@ -38,6 +39,7 @@ class BlogTables
         self::ensureColumn($db, 'image_alt', 'VARCHAR(255) NULL');
         self::ensureColumn($db, 'canonical_url', 'VARCHAR(500) NULL');
         self::ensureColumn($db, 'internal_links', 'TEXT NULL');
+        self::ensureColumn($db, 'seo_keywords', 'VARCHAR(512) NULL');
 
         if ((int) $db->table('blog_posts')->countAllResults() === 0) {
             self::seed($db);

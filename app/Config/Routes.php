@@ -37,6 +37,8 @@ $routes->group('api', ['namespace' => 'App\Controllers'], function($routes) {
     $routes->match(['POST', 'OPTIONS'], 'international/enquire', 'InternationalPages::enquire');
     $routes->match(['GET', 'OPTIONS'], 'blogs', 'BlogPosts::publicIndex');
     $routes->match(['GET', 'OPTIONS'], 'blogs/(:segment)', 'BlogPosts::publicShow/$1');
+    $routes->match(['GET', 'OPTIONS'], 'pages/seo', 'PageSeo::publicIndex');
+    $routes->match(['GET', 'OPTIONS'], 'pages/seo/(:segment)', 'PageSeo::publicShow/$1');
 });
 
 // Dashboard Routes
@@ -239,6 +241,9 @@ $routes->match(['POST', 'OPTIONS'], 'job-openings/edit/(:num)', 'JobOpenings::ed
 $routes->match(['POST', 'OPTIONS'], 'job-openings/delete/(:num)', 'JobOpenings::delete/$1');
 
 // Blog posts (admin CRUD; session auth via check_auth)
+$routes->GET('pages-seo', 'PageSeo::index');
+$routes->match(['POST', 'OPTIONS'], 'pages-seo/edit/(:segment)', 'PageSeo::edit/$1');
+
 $routes->GET('blog-posts', 'BlogPosts::index');
 $routes->GET('blog-posts/(:num)', 'BlogPosts::show/$1');
 $routes->match(['POST', 'OPTIONS'], 'blog-posts/add', 'BlogPosts::add');

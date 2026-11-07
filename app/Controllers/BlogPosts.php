@@ -243,6 +243,7 @@ class BlogPosts extends BaseController
                 : null,
             'seo_title' => mb_substr(trim((string) ($payload['seo_title'] ?? '')), 0, 180) ?: null,
             'seo_description' => mb_substr(trim((string) ($payload['seo_description'] ?? '')), 0, 320) ?: null,
+            'seo_keywords' => mb_substr(trim((string) ($payload['seo_keywords'] ?? '')), 0, 512) ?: null,
             'canonical_url' => mb_substr(trim((string) ($payload['canonical_url'] ?? '')), 0, 500) ?: null,
             'internal_links' => trim((string) ($payload['internal_links'] ?? '')) ?: null,
             'is_active' => $isActive,

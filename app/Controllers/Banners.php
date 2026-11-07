@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Libraries\BannerColumns;
 use App\Models\BannerModel;
 use CodeIgniter\API\ResponseTrait;
 use CodeIgniter\HTTP\RequestInterface;
@@ -19,6 +20,19 @@ class Banners extends BaseController
         parent::initController($request, $response, $logger);
         $this->bannerModel = new BannerModel();
         helper(['api_helper']);
+        BannerColumns::ensure();
+    }
+
+    /**
+     * Page slug this banner belongs to. "home" is the homepage slideshow.
+     */
+    private function normalizePlacement($value): string
+    {
+        $placement = strtolower(trim((string) $value));
+        if ($placement === '' || !preg_match('/^[a-z0-9-]{1,64}$/', $placement)) {
+            return 'home';
+        }
+        return $placement;
     }
 
     /**
@@ -42,9 +56,11 @@ class Banners extends BaseController
     public function bannersV2()
     {
         try {
+            $placement = $this->normalizePlacement($this->request->getGet('placement') ?: 'home');
             $banner_list = $this->bannerModel->getBannerList();
-            $active = array_values(array_filter($banner_list, static function (array $row): bool {
-                return (int)($row['is_active'] ?? 1) === 1;
+            $active = array_values(array_filter($banner_list, function (array $row) use ($placement): bool {
+                $rowPlacement = $this->normalizePlacement($row['placement'] ?? 'home');
+                return (int)($row['is_active'] ?? 1) === 1 && $rowPlacement === $placement;
             }));
 
             return json_success($active);
@@ -68,6 +84,7 @@ class Banners extends BaseController
         if ($this->request->is('post')) {
             $alt = $this->request->getPost('alt');
             $link = $this->request->getPost('link');
+            $placement = $this->normalizePlacement($this->request->getPost('placement'));
             $order = $this->request->getPost('order') ? (int)$this->request->getPost('order') : 0;
             $is_active = $this->request->getPost('is_active') !== null ? (int)$this->request->getPost('is_active') : 1;
 
@@ -98,6 +115,7 @@ class Banners extends BaseController
                 'img' => $image_url,
                 'alt' => $alt,
                 'link' => $link ?: null,
+                'placement' => $placement,
                 'order' => $order,
                 'is_active' => $is_active,
                 'created_at' => date('Y-m-d H:i:s'),
@@ -137,6 +155,7 @@ class Banners extends BaseController
         if ($this->request->is('post')) {
             $alt = $this->request->getPost('alt');
             $link = $this->request->getPost('link');
+            $placement = $this->normalizePlacement($this->request->getPost('placement'));
             $order = $this->request->getPost('order') !== null ? (int)$this->request->getPost('order') : null;
             $is_active = $this->request->getPost('is_active') !== null ? (int)$this->request->getPost('is_active') : null;
 
@@ -147,6 +166,7 @@ class Banners extends BaseController
             $bannerArr = [
                 'alt' => $alt,
                 'link' => $link !== null ? ($link ?: null) : null,
+                'placement' => $placement,
                 'updated_at' => date('Y-m-d H:i:s'),
             ];
 

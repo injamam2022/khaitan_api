@@ -23,6 +23,7 @@ class BlogPostModel extends Model
         'content',
         'seo_title',
         'seo_description',
+        'seo_keywords',
         'canonical_url',
         'internal_links',
         'is_active',

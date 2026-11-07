@@ -13,7 +13,7 @@ class BannerModel extends Model
     protected $useSoftDeletes = false;
     protected $protectFields = true;
     protected $allowedFields = [
-        'img', 'alt', 'link', 'order', 'is_active', 'created_at', 'updated_at'
+        'img', 'alt', 'link', 'placement', 'order', 'is_active', 'created_at', 'updated_at'
     ];
 
     protected $useTimestamps = false;
@@ -35,6 +35,37 @@ class BannerModel extends Model
     protected $afterDelete = [];
 
     /**
+     * Rewrite legacy /backend/assets/ URLs to the current public assets path.
+     */
+    private function publicImageUrl(?string $img): string
+    {
+        $img = trim((string) $img);
+        if ($img === '') {
+            return '';
+        }
+
+        if (preg_match('#/(?:backend|khaitan_api/public)/assets/(.+)$#i', $img, $match)) {
+            return base_url('assets/' . ltrim($match[1], '/'));
+        }
+
+        if (preg_match('#^https?://#i', $img)) {
+            return preg_replace('#/index\\.php#', '', $img) ?: $img;
+        }
+
+        return base_url('assets/banners/' . ltrim($img, '/'));
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function withPublicImage(array $row): array
+    {
+        $row['img'] = $this->publicImageUrl($row['img'] ?? '');
+        return $row;
+    }
+
+    /**
      * Get banner list
      * 
      * @return array Banner list
@@ -45,7 +76,10 @@ class BannerModel extends Model
         $builder->orderBy('order', 'ASC');
         $builder->orderBy('id', 'DESC');
         
-        return $builder->get()->getResultArray();
+        return array_map(
+            fn (array $row): array => $this->withPublicImage($row),
+            $builder->get()->getResultArray()
+        );
     }
     
     /**
@@ -61,7 +95,7 @@ class BannerModel extends Model
         $builder->limit(1);
         
         $result = $builder->get()->getResultArray();
-        return !empty($result) ? $result[0] : null;
+        return !empty($result) ? $this->withPublicImage($result[0]) : null;
     }
     
     /**
