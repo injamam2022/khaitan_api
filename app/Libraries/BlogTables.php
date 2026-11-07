@@ -16,10 +16,13 @@ class BlogTables
           subcategory VARCHAR(120) NOT NULL DEFAULT '',
           description TEXT NULL,
           image VARCHAR(500) NULL,
+          image_alt VARCHAR(255) NULL,
           link VARCHAR(500) NULL,
           content LONGTEXT NULL,
           seo_title VARCHAR(180) NULL,
           seo_description VARCHAR(320) NULL,
+          canonical_url VARCHAR(500) NULL,
+          internal_links TEXT NULL,
           is_active TINYINT(1) NOT NULL DEFAULT 1,
           sort_order INT NOT NULL DEFAULT 0,
           status ENUM('ACTIVE','DELETED') NOT NULL DEFAULT 'ACTIVE',
@@ -32,8 +35,19 @@ class BlogTables
           KEY idx_blog_posts_sort (sort_order, id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        self::ensureColumn($db, 'image_alt', 'VARCHAR(255) NULL');
+        self::ensureColumn($db, 'canonical_url', 'VARCHAR(500) NULL');
+        self::ensureColumn($db, 'internal_links', 'TEXT NULL');
+
         if ((int) $db->table('blog_posts')->countAllResults() === 0) {
             self::seed($db);
+        }
+    }
+
+    private static function ensureColumn($db, string $name, string $definition): void
+    {
+        if (!$db->fieldExists($name, 'blog_posts')) {
+            $db->query("ALTER TABLE blog_posts ADD COLUMN {$name} {$definition}");
         }
     }
 

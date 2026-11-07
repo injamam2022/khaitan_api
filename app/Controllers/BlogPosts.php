@@ -50,6 +50,17 @@ class BlogPosts extends BaseController
         ]);
     }
 
+    public function show($id = null): ResponseInterface
+    {
+        check_auth();
+        $id = (int) $id;
+        $row = $this->model->where('id', $id)->where('status <>', 'DELETED')->first();
+        if (!$row) {
+            return json_error('Blog post not found.', 404);
+        }
+        return json_success($this->formatRow($row));
+    }
+
     public function publicIndex(): ResponseInterface
     {
         if ($this->isOptions()) {
@@ -69,6 +80,31 @@ class BlogPosts extends BaseController
         return json_success([
             'posts' => array_map([$this, 'formatRow'], $rows),
         ]);
+    }
+
+    public function publicShow($slug = null): ResponseInterface
+    {
+        if ($this->isOptions()) {
+            return $this->response->setStatusCode(204);
+        }
+
+        $slug = $this->cleanSlug((string) $slug);
+        if ($slug === '') {
+            return json_error('Blog post not found.', 404);
+        }
+
+        $row = $this->model->builder()
+            ->where('slug', $slug)
+            ->where('status', 'ACTIVE')
+            ->where('is_active', 1)
+            ->get()
+            ->getRowArray();
+
+        if (!$row) {
+            return json_error('Blog post not found.', 404);
+        }
+
+        return json_success($this->formatRow($row));
     }
 
     public function add(): ResponseInterface
@@ -200,12 +236,15 @@ class BlogPosts extends BaseController
             'category' => mb_substr(trim((string) ($payload['category'] ?? '')), 0, 120),
             'subcategory' => mb_substr(trim((string) ($payload['subcategory'] ?? '')), 0, 120),
             'description' => trim((string) ($payload['description'] ?? '')) ?: null,
+            'image_alt' => mb_substr(trim((string) ($payload['image_alt'] ?? '')), 0, 255) ?: null,
             'link' => mb_substr(trim((string) ($payload['link'] ?? '')), 0, 500) ?: null,
             'content' => array_key_exists('content', $payload)
                 ? (trim((string) $payload['content']) ?: null)
                 : null,
             'seo_title' => mb_substr(trim((string) ($payload['seo_title'] ?? '')), 0, 180) ?: null,
             'seo_description' => mb_substr(trim((string) ($payload['seo_description'] ?? '')), 0, 320) ?: null,
+            'canonical_url' => mb_substr(trim((string) ($payload['canonical_url'] ?? '')), 0, 500) ?: null,
+            'internal_links' => trim((string) ($payload['internal_links'] ?? '')) ?: null,
             'is_active' => $isActive,
             'sort_order' => (int) ($payload['sort_order'] ?? 0),
         ];
