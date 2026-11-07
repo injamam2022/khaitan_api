@@ -122,6 +122,9 @@ class Products extends BaseController
         if ($value === '') {
             return null;
         }
+        if (preg_match('#/(?:backend|khaitan_api/public)/assets/(.+)$#i', $value, $match)) {
+            return base_url('assets/' . ltrim($match[1], '/'));
+        }
         if (preg_match('#^https?://#i', $value)) {
             $cleaned = preg_replace('#/index\\.php#', '', $value);
             return is_string($cleaned) ? $cleaned : $value;
