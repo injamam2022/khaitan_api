@@ -1,0 +1,18 @@
+CREATE TABLE IF NOT EXISTS create_job_tables (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  title VARCHAR(200) NOT NULL,
+  slug VARCHAR(160) NOT NULL,
+  job_type VARCHAR(50) NOT NULL DEFAULT 'Full Time',
+  location VARCHAR(100) NOT NULL DEFAULT '',
+  level VARCHAR(50) NOT NULL DEFAULT '',
+  years_experience VARCHAR(20) NOT NULL DEFAULT '',
+  description TEXT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0,
+  status ENUM('ACTIVE','DELETED') NOT NULL DEFAULT 'ACTIVE',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_create_job_tables_slug (slug),
+  KEY idx_create_job_tables_active (is_active, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

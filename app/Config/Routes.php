@@ -35,6 +35,7 @@ $routes->group('api', ['namespace' => 'App\Controllers'], function($routes) {
     $routes->match(['GET', 'OPTIONS'], 'international/pages', 'InternationalPages::publicIndex');
     $routes->match(['GET', 'OPTIONS'], 'international/pages/(:segment)', 'InternationalPages::publicShow/$1');
     $routes->match(['POST', 'OPTIONS'], 'international/enquire', 'InternationalPages::enquire');
+    $routes->match(['GET', 'OPTIONS'], 'blogs', 'BlogPosts::publicIndex');
 });
 
 // Dashboard Routes
@@ -235,6 +236,12 @@ $routes->GET('job-openings', 'JobOpenings::index');
 $routes->match(['POST', 'OPTIONS'], 'job-openings/add', 'JobOpenings::add');
 $routes->match(['POST', 'OPTIONS'], 'job-openings/edit/(:num)', 'JobOpenings::edit/$1');
 $routes->match(['POST', 'OPTIONS'], 'job-openings/delete/(:num)', 'JobOpenings::delete/$1');
+
+// Blog posts (admin CRUD; session auth via check_auth)
+$routes->GET('blog-posts', 'BlogPosts::index');
+$routes->match(['POST', 'OPTIONS'], 'blog-posts/add', 'BlogPosts::add');
+$routes->match(['POST', 'OPTIONS'], 'blog-posts/edit/(:num)', 'BlogPosts::edit/$1');
+$routes->match(['POST', 'OPTIONS'], 'blog-posts/delete/(:num)', 'BlogPosts::delete/$1');
 
 // Job applications (admin list/delete/resume; session auth via check_auth)
 $routes->GET('job-applications', 'JobApplications::index');

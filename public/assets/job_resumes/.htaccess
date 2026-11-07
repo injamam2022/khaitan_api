@@ -1,0 +1,5 @@
+# Prevent script execution in uploaded resumes
+<FilesMatch "\.(php|phtml|phar|cgi|pl)$">
+  Require all denied
+</FilesMatch>
+Options -Indexes

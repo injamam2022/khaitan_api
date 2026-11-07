@@ -12,8 +12,14 @@ Options -Indexes
 	RewriteEngine On
 
 	# Base path intentionally omitted so this works in both
-	# local (/khaitan_dev_new/khaitan_api/public) and production
+	# local (/khaitan_new/khaitan_api/public) and production
 	# (/khaitan_api/public) without editing per environment.
+
+	# Local XAMPP only: Windows Apache often answers OPTIONS before CodeIgniter.
+	# Production host (admin.khaitan.com) must keep using the CI CORS filter.
+	RewriteCond %{HTTP_HOST} ^(localhost|127\.0\.0\.1)(:[0-9]+)?$ [NC]
+	RewriteCond %{REQUEST_METHOD} OPTIONS
+	RewriteRule ^ cors-preflight.php [L]
 
 	# Redirect Trailing Slashes
 	RewriteCond %{REQUEST_FILENAME} !-d
