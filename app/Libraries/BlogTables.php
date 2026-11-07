@@ -42,6 +42,50 @@ class BlogTables
         if ((int) $db->table('blog_posts')->countAllResults() === 0) {
             self::seed($db);
         }
+
+        self::backfillBodies($db);
+    }
+
+    private static function backfillBodies($db): void
+    {
+        if (!class_exists(BlogPostBodies::class)) {
+            return;
+        }
+
+        foreach (BlogPostBodies::all() as $slug => $body) {
+            $row = $db->table('blog_posts')->where('slug', $slug)->where('status <>', 'DELETED')->get()->getRowArray();
+            if (!$row) {
+                continue;
+            }
+
+            $update = [];
+            if (trim((string) ($row['content'] ?? '')) === '' && !empty($body['content'])) {
+                $update['content'] = $body['content'];
+            }
+            if (trim((string) ($row['description'] ?? '')) === '' && !empty($body['description'])) {
+                $update['description'] = $body['description'];
+            }
+            if (trim((string) ($row['image_alt'] ?? '')) === '' && !empty($row['title'])) {
+                $update['image_alt'] = $row['title'];
+            }
+            if (trim((string) ($row['seo_title'] ?? '')) === '' && !empty($row['title'])) {
+                $update['seo_title'] = mb_substr((string) $row['title'], 0, 180);
+            }
+            if (trim((string) ($row['seo_description'] ?? '')) === '' && !empty($body['description'])) {
+                $update['seo_description'] = mb_substr((string) $body['description'], 0, 320);
+            }
+            if (trim((string) ($row['canonical_url'] ?? '')) === '' && !empty($row['link'])) {
+                $link = (string) $row['link'];
+                $update['canonical_url'] = str_starts_with($link, 'http')
+                    ? $link
+                    : 'https://www.khaitan.com' . (str_starts_with($link, '/') ? $link : '/' . $link);
+            }
+
+            if ($update !== []) {
+                $update['updated_at'] = date('Y-m-d H:i:s');
+                $db->table('blog_posts')->where('id', $row['id'])->update($update);
+            }
+        }
     }
 
     private static function ensureColumn($db, string $name, string $definition): void
@@ -107,17 +151,33 @@ class BlogTables
             ],
         ];
 
+        $bodies = class_exists(BlogPostBodies::class) ? BlogPostBodies::all() : [];
+
         foreach ($rows as $row) {
-            $db->table('blog_posts')->insert(array_merge($row, [
-                'content' => null,
-                'seo_title' => null,
-                'seo_description' => null,
+            $body = $bodies[$row['slug']] ?? ['content' => null, 'description' => ''];
+            $description = $row['description'] !== '' ? $row['description'] : ($body['description'] ?? '');
+            $link = (string) $row['link'];
+            $db->table('blog_posts')->insert([
+                'title' => $row['title'],
+                'slug' => $row['slug'],
+                'category' => $row['category'],
+                'subcategory' => $row['subcategory'],
+                'description' => $description !== '' ? $description : null,
+                'image' => $row['image'],
+                'image_alt' => $row['title'],
+                'link' => $link,
+                'content' => $body['content'] ?? null,
+                'seo_title' => mb_substr($row['title'], 0, 180),
+                'seo_description' => $description !== '' ? mb_substr($description, 0, 320) : null,
+                'canonical_url' => 'https://www.khaitan.com' . $link,
+                'internal_links' => null,
                 'is_active' => 1,
+                'sort_order' => $row['sort_order'],
                 'status' => 'ACTIVE',
                 'published_at' => $now,
                 'created_at' => $now,
                 'updated_at' => $now,
-            ]));
+            ]);
         }
     }
 }
